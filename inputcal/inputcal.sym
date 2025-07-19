@@ -1,0 +1,80 @@
+1760 0 inputc
+437 0 LOADANGO loadan
+574 0 WORINF* worinf
+575 0 DATA* data
+600 0 KCOUNT* kcount
+1170 0 ERROFLG* errflg
+1323 0 PRINT8 print8
+1402 0 LUN*MON lunmon
+1410 0 DRUMTAP* drmtap
+1450 0 COSYTISO csyiso
+1757 0 TSTATE* tstate
+2033 T -
+2034 0 binerr
+2034 I -
+2041 0 blkerr
+2045 I -
+2050 1 И15
+2254 1 noname
+2254-2257 I -
+2255 U -
+2261 B - 
+2314 B -
+2447 B -
+2475 I redold
+2534 B -
+2537 B -
+2542 B -
+2546-2576 H -
+3170-3171 I -
+3243 B -
+3316 I -
+3342 G -
+3347 I -
+3416 2 switch
+3417 2 -
+3421 2 -
+3422 2 -
+3423 B -
+3437 2 -
+3440 2 -
+3441 2 -
+3476 2 -
+3504 2 -
+3513 2 -
+3563 0 noendb
+3563-3566 I -
+3571 I ошибка 
+3577-3601 I -
+4051-4052 I -
+4141 B -
+4345 B -
+4353 B -
+4364 2 -
+4436 B -
+4475 B -
+4500 B -
+4503 B -
+4516 2 -
+4532 B -
+4535 B -
+4540 B -
+4552 B -
+4553 2 -
+4634-4636 I -
+4656 I -
+5064 0 mismat
+5064-5073 I -
+5070 0 nocrd0
+5074 0 wrong
+5100 0 noend
+5100-5110 I -
+5104 0 badnum
+5211 B -
+5213 B revcard*
+5245-5246 I -
+5304 0 powers
+5304-5311 R -
+5470 1 txttab
+5470-5507 I -
+3160-3165 2 -
