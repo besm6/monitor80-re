@@ -1,5 +1,6 @@
 cosy2txt
 ovl2bin
+*.o
 *~
 *.dis
 *.bin
