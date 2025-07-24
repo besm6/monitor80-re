@@ -44,6 +44,7 @@ close (F);
 print B qq/
 *LIBRA:2
 *COPY:1,270000,600000
+*STAND
 *CALL DTRAN($mod)
 /;
 if (open(D, "$basename.dtr")) {

@@ -40,6 +40,7 @@ MODULES = \
 	monitor_ \
 	monread% \
 	newlis \
+	newsyste \
         paramt% \
 	print8 \
 	pt8read \
@@ -67,13 +68,13 @@ all: $(addsuffix .diff,$(MODULES))
 	diff -C 3 $^ && touch $@
 
 %.dis: %.masm
-	./asm.pl $<
+	../tools/asm.pl $<
 
 %.dis: %.asm
-	./asm.pl $<
+	../tools/asm.pl $<
 
 %.orig:
-	./disas.pl $(basename $@)
+	../tools/disas.pl $(basename $@)
 
 clean:
 	rm -f *.b6 *.diff
