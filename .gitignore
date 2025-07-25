@@ -2,6 +2,8 @@ cosy2txt
 ovl2bin
 *.o
 *~
+*.diff
+*.orig
 *.dis
 *.bin
 *.ovl

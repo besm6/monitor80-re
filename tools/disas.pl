@@ -8,11 +8,11 @@ $keep = 0;
 $lib = 0;
 while ($#ARGV >= 0) {
         if($ARGV[0] eq '-keep') { $keep = 1; shift @ARGV; }
-        elsif ("$ARGV[0] $ARGV[1]" =~ m/-lib ([0-7]+)/) { $lib = $1; shift @ARGV; shift @ARGV; }
+        elsif ("$ARGV[0] $ARGV[1]" =~ m/-zone ([0-7]+)/) { $lib = ":67$1"; shift @ARGV; shift @ARGV; }
         else { last; }
 }
 
-die "Usage: disas.pl [-lib N] [-keep] modname\n" if $#ARGV != 0;
+die "Usage: disas.pl [-zone NNNN] [-keep] modname\n" if $#ARGV != 0;
 
 $vol = $ENV{'WORKVOL'};
 die "Need env var WORKVOL\n" unless $vol;
@@ -22,11 +22,6 @@ $b6 = "disas$$.b6";
 
 $mod =~ s-_-/-g;
 $mod =~ s-%-*-g;
-
-@libs = ('', ':671500', ':671350', ':670120', ':04', ':05', ':670761', ':671205',
-         ':671470', ':11', ':671163', ':671700', ':14', ':15', ':16', ':17',
-         ':671267', ':21', ':671100', ':23', ':671242'); 
-$lib = $libs[oct($lib)];
 
 open(B, ">$b6") || die "Cannot open $b6 for writing\n";
 print B qq/шифр 419999ЗС5^

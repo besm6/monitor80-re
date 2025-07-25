@@ -16,7 +16,7 @@ all: $(addsuffix .diff,$(MODULES))
 	../tools/asm.pl $<
 
 %.orig:
-	../tools/disas.pl -lib $(basename $@)
+	../tools/disas.pl -zone 1350 $(basename $@)
 
 clean:
 	rm -f *.b6 *.diff
