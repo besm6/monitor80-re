@@ -47,9 +47,10 @@ print B qq/
 *STAND
 *CALL DTRAN($mod)
 /;
-if (open(D, "$basename.dtr")) {
+if (open(D, "$basename.dtra") || open(D, "$basename.dtr")) {
         undef $/;
         print B <D>;
+        close(D);
 }
 print B qq/
 *EDIT
@@ -62,9 +63,12 @@ print B qq/
 /;
 close(B);
 
-
+$listing=`dispak -l $b6`;
+if ($listing =~ /\n \*\*\*\*\*\*/) {
+        print STDERR $listing;
+        die "Compilation failed\n";
+}
 system(qq@
-dispak -l $b6
-besmtool dump $vol --length=3 --to-file=/dev/stdout | ../tools/cosy2txt > $basename.dis
+besmtool dump $vol --length=10 --to-file=/dev/stdout | ../tools/cosy2txt > $basename.dis
 @);
 unlink($b6) unless $keep;

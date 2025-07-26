@@ -35,7 +35,7 @@ c
  AC:     ,equ,10B .сумматор
 с
  A/I0    :  , LC  ,1
- *ICHECK*:LC,BLOCK,I0,I1),I2(2),I4,I5
+ *ICHECK*:LC,BLOCK,I0,I1,I2(2),I4,I5
 c  *0:B,BLOCK,CONTROL.PEAKЦИЯ HA OШИБKИ
 c  ,CONT,ZONE.TEKYЩAЯ ЗOHA
 c  ,CONT,FLER.HOMEP OШИБKИ

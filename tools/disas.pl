@@ -5,7 +5,7 @@ use open ':encoding(UTF-8)';
 use open ':std', ':encoding(UTF-8)';
 
 $keep = 0;
-$lib = 0;
+$lib = '';
 while ($#ARGV >= 0) {
         if($ARGV[0] eq '-keep') { $keep = 1; shift @ARGV; }
         elsif ("$ARGV[0] $ARGV[1]" =~ m/-zone ([0-7]+)/) { $lib = ":67$1"; shift @ARGV; shift @ARGV; }
@@ -32,9 +32,10 @@ print B qq/шифр 419999ЗС5^
 *COPY:1,270000,600000
 *CALL DTRAN$lib($mod)
 /;
-if (open(D, "$file.dtr")) {
+if (open(D, "$file.dtro") || open(D, "$file.dtr")) {
         undef $/;
         print B <D>;
+        close(D);
 }
 print B qq/
 *EDIT
@@ -48,6 +49,6 @@ print B qq/
 close(B);
 system(qq@
 dispak -l $b6
-besmtool dump $vol --length=3 --to-file=/dev/stdout | ../tools/cosy2txt | sed '/^ :,EQU,/d' > $file.orig
+besmtool dump $vol --length=10 --to-file=/dev/stdout | ../tools/cosy2txt | sed '/^ :,EQU,/d' > $file.orig
 @);
 unlink($b6) unless $keep;

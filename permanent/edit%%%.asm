@@ -1,4 +1,4 @@
-﻿EDIT***:,NAME,.31.12.80
+ EDIT***:,NAME,.31.12.80
  *REGIM//:,LC,1
  *TIKTAK* :,LC,25.
  MONCARD* :,LC,25.

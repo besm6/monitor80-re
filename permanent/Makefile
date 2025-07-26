@@ -5,7 +5,6 @@ MODULES = \
 	clearlex \
 	cosytiso \
 	drumtap% \
-	edit%%% \
 	erriom \
 	execut \
 	ficmem% \
@@ -36,12 +35,10 @@ MODULES = \
 	ltable% \
 	lun%mon \
 	mon%itor \
-	monitor% \
 	monitor_ \
 	monread% \
 	newlis \
 	newsyste \
-        paramt% \
 	print8 \
 	pt8read \
 	rd_bt \
@@ -58,6 +55,8 @@ MODULES = \
 	ttable%
 
 TODO = \
+	edit%%% \
+	monitor% \
 	paramt%
 
 .PRECIOUS: %.orig %.dis

@@ -1,3 +1,4 @@
+equt:gak/4-:
 equt:gal/1-:
 equt:gal/7-:
 equt:gam/0-:
@@ -6,3 +7,10 @@ equt:gam/2-:
 equt:gam/3-:
 equt:gam/4-:
 equt:gam/5-:
+base:1,0
+iso:117-121
+equ*:122=rdcat
+equ*:126=nuzzzz
+equ*:166=start
+gost:237-266
+equ*:303=defnuzzz

@@ -100,8 +100,8 @@ c INFLOAD*:LC,BLOCK,ALOAD,INFLOA,INFMD,INFDM
  POINT/PT:  ,LC ,1
  ASTL*   :  ,LC ,1
  NEWOLD* :  ,LC ,1
- RRR     :  ,EQU,12289-RRR .*
- RRR1    :  ,LP ,MONCARD*+13 .*
+ RRR     :  ,LP ,0
+ RRR1    :  ,LP  ,-RRR+30001B
  SYS P   :  ,WEQ,43B
  *1      :  ,BLOCК,M1,M2,M3,M4,M5,M6,M7,M8,M9
             , CONT,M10,M11,M12,M13,M14,M15
