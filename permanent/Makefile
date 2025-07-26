@@ -39,6 +39,7 @@ MODULES = \
 	monread% \
 	newlis \
 	newsyste \
+        paramt% \
 	print8 \
 	pt8read \
 	rd_bt \
@@ -57,7 +58,6 @@ MODULES = \
 TODO = \
 	edit%%% \
 	monitor% \
-	paramt%
 
 .PRECIOUS: %.orig %.dis
 
