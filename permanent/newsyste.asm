@@ -35,24 +35,24 @@
  ,ATX,RDCAT
  ,*70,RDCAT
  9,VTM,word1
- *0016B:9,UTM,2
+ search:9,UTM,2
  9,XTA,
  ,AEX,BCEED
- ,UZA,*0027B
+ ,UZA,endfound
  9,XTA,
  ,AAX,E47
- ,UZA,*0016B
+ ,UZA,search
  ,XTA,TFLAG
- ,U1A,*0025B
+ ,U1A,flipE48
  9,XTA,
  ,AOX,E48
  9,ATX,
- ,UJ,*0016B
- *0025B:9,XTA,
+ ,UJ,search
+ flipE48:9,XTA,
  ,AEX,E48
  9,ATX,
- ,UJ,*0016B
- *0027B:,*70,WRCAT
+ ,UJ,search
+ endfound:,*70,WRCAT
  12,VTM,lastsect+41
  11,VTM,FIRST
  10,VTM,FIRST-ENDFIRST
@@ -76,7 +76,7 @@
  ,XTA,
  8,ATX,3370B
  ,XTA,TFLAG
- ,U1A,*0103B
+ ,U1A,writeTRP
  8,XTA,3776B
  8,XTS,3777B
  ,XTS,
@@ -135,7 +135,7 @@
  ,ITS,14
  ,XTS,
  13,VJM,PRINT8
- *0103B:,*70,WRCAT
+ writeTRP:,*70,WRCAT
  ,STI,
  ,ATI,13
  13,UJ,
@@ -175,7 +175,7 @@
  :,UJ,entry2
  entry1:2,VTM,-7
  4,VTM,-48
- ,UTC,*0243B.=0
+ ,UTC,E64TXT+3
  6,VTM,
  5,XTA,
  ,ATX,FINISH
@@ -185,37 +185,37 @@
  ,YTA,
  ,ATI,14
  11,VTM,
- *0176B:14,MTJ,10
+ div/6:14,MTJ,10
  14,UTM,-6
  ,ITA,14
  ,AAX,*0267B.=4 0000
- ,U1A,*0202B
+ ,U1A,div*done
  11,UTM,1
- ,UJ,*0176B
- *0202B:,UTC,txt2gost
+ ,UJ,div/6
+ div*done:,UTC,txt2gost
  11,XTA,
- *0203B:,UTC,*0206B
+ shift8:,UTC,shftdone
  10,VZM,
  ,ASN,64-8
  10,UTM,-1
- ,UJ,*0203B
- *0206B:,AAX,*0272B.=:776
+ ,UJ,shift8
+ shftdone:,AAX,*0272B.=:776
  4,ASN,64+48
  6,AEX,
  6,ATX,
  4,UTM,10B
- ,UTC,*0213B
+ ,UTC,nextchar
  4,V1M,
  4,VTM,-48
  6,UTM,1
- *0213B:,UTC,loop5
+ nextchar:,UTC,loop5
  2,VLM,
  ,ITA,5
  ,ARX,*0270B.=10
  ,ASN,64-33
  ,AUX,*0237B.=:0160 3407 0160 34
- ,AEX,*0245B
- ,ATX,*0245B
+ ,AEX,E64TXT+5
+ ,ATX,E64TXT+5
  5,XTA,7
  ,ASN,64-33
  ,AUX,*0237B.=:0160 3407 0160 34
@@ -228,26 +228,26 @@
  ,U1A,*0225B
  ,XTA,*0253B.=360 7417 0360 7631
  ,ATX,tentry
- *0225B:,*64,*0235B
+ *0225B:,*64,E64CW
  13,UJ,
  entry2:,XTA,netrazd
- ,ATX,*0240B
+ ,ATX,E64TXT
  ,XTA,netrazd+1
- ,ATX,*0240B+1
+ ,ATX,E64TXT+1
  ,ITA,5
  ,ARX,*0270B.=10
  5,ATX,7
  ,UTC,entry1
  13,VJM,
  ,SJ,
- *0235B:,ATX,*0240B
- ,ATX,*0240B
+ E64CW:,ATX,E64TXT
+ ,ATX,E64TXT
  ,STX,
  8,ATX,
  *0237B:,GOST,6H777770
- *0240B:,GOST,18H
- *0243B:,GOST,12H00000000
- *0245B:,GOST,6H00000
+ E64TXT:,GOST,18H
+ ,GOST,12H00000000
+ ,GOST,6H00000
  tentry:,GOST,12H   ENTRY
  *0250B:,GOST,6H00000'231'
  netrazd:,GOST,12H HET PAЗДEЛA
