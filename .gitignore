@@ -5,6 +5,7 @@ ovl2bin
 *.diff
 *.orig
 *.dis
+*.obj
 *.bin
 *.ovl
 *.out
