@@ -2,9 +2,30 @@ export WORKVOL = 80
 MODULES = \
 	newplace 
 
+LOADLIBR = \
+	g02771 \
+	statsum \
+	loadlibr \
+	os_besm6 \
+	pt6_g \
+	savelist \
+	tail
+
 .PRECIOUS: %.orig %.dis
 
-all: $(addsuffix .diff,$(MODULES))
+all: $(addsuffix .diff,$(MODULES)) reduol.diff loadlibr.diff
+
+reduol.orig:
+	besmtool dump 2048 --start=0207 --length=1 > $@
+
+loadlibr.orig:
+	besmtool dump 2048 --start=0206 --length=1 > $@
+
+reduol.dis: reduol.obj
+	../tools/linker.pl -zone 0207 -top reduol reduol.obj
+
+loadlibr.dis: $(addsuffix .obj,$(LOADLIBR))
+	../tools/linker.pl -zone 0206 -top loadlibr $^
 
 %.diff: %.dis %.orig
 	diff -C 3 $^ && touch $@
@@ -14,6 +35,9 @@ all: $(addsuffix .diff,$(MODULES))
 
 %.dis: %.asm
 	../tools/asm.pl $<
+
+%.obj: %.asm
+	../tools/tostar.pl $<
 
 %.orig:
 	../tools/disas.pl -zone 1350 $(basename $@)

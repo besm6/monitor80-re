@@ -1,10 +1,4 @@
-﻿шифр 419900зс5^
-dis 67(80-wr)^
-еев1а3
-*name
-*no list
-*assem
- REDUOL:,NAME,DTRAN  /01.06.84/
+﻿ REDUOL:,NAME,DTRAN  /01.06.84/
  INFSUB:,EQU,2.2B
  ADR:,EQU,INFSUB
  TYPE:,EQU,3.3B
@@ -1733,20 +1727,3 @@ c опциональный уход на процедуру печати
  ,TEXT,8HHTHOCTЬ
  FRIE:,TEXT,8H  CBOБOД
  ,END,
-C To compare:
-C besmtool dump 2048 --start=0207 --length=1 > orig.dump
-C besmtool dump 80 --start=0207 --length=1 > new.dump
-C diff orig.dump new.dump
- DUMPER:,NAME,
- END:,LP,0
- SPACER:,LP,2000B-END
- REDUOL:,SUBP,
- ,*70, WRITE
- ,SJ,
- WRITE:,LOG,0000 0100 0067 0207
- ,END,
-*main dumper
-*execute
-*end file
-``````
-еконец

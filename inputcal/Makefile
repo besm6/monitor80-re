@@ -8,11 +8,11 @@ cmp.out: gold.bin silver.bin
 .bin.dis:
 	disbesm6 -a1760 -e1770 -ninputcal.sym $< > $@
 
-gold.bin: gold.ovl ovl2bin
-	./ovl2bin < $< > $@
+gold.bin: gold.ovl
+	../tools/ovl2bin < $< > $@
 
-silver.bin: silver.ovl ovl2bin
-	./ovl2bin < $< > $@
+silver.bin: silver.ovl
+	../tools/ovl2bin < $< > $@
 
 gold.ovl:
 	besmtool dump 2048 --start=0251 --length=2 --to-file=$@
@@ -25,8 +25,6 @@ silver.ovl: workvol *.asm
 	./asm.pl $(WORKVOL) *.asm
 	besmtool dump $(WORKVOL) --start=1 --length=2 --to-file=$@
 
-ovl2bin: ovl2bin.c
-	$(CC) $(CFLAGS) -o $@ $^
 clean:
 	rm -f *.o *.bin *.ovl *.b6 *~ *.out
 
