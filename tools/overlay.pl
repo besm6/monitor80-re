@@ -8,11 +8,14 @@ $verbose = 0;
 if ($#ARGV >= 0 && $ARGV[0] eq '-v') { $verbose = 1; shift @ARGV; }
 
 $vol = 0;
-die "Usage: asm.pl [-v] volume# files\n" if $#ARGV < 0;
+die "Usage: asm.pl [-v] volume# rootmod files\n" if $#ARGV < 2;
 
 $vol = $ARGV[0];
 shift @ARGV;
 $b6 = "temp.b6";
+
+$root = $ARGV[0];
+shift @ARGV;
 
 open(B, ">$b6") || die "Cannot open $b6 for writing\n";
 print B qq/шифр 419999ЗС5^
@@ -34,7 +37,7 @@ close (F);
 print B qq/
 *libra:2
 *call overlay*
- anything(inputcal)
+ anything($root)
 *end record
 *call ocatalog
 / unless $verbose;

@@ -1,7 +1,7 @@
 WORKVOL = 80
 
 cmp.out: gold.bin silver.bin
-	./cmp.sh
+	../tools/cmp.sh
 .cpp.o:
 	$(CXX) $(CFLAGS) -c -o $@ $<
 
@@ -22,7 +22,7 @@ workvol:
 
 silver.ovl: workvol *.asm
 	besmtool write $(WORKVOL) --start=0 --length=3 --from-file=/dev/zero
-	./asm.pl $(WORKVOL) *.asm
+	../tools/overlay.pl $(WORKVOL) inputcal *.asm
 	besmtool dump $(WORKVOL) --start=1 --length=2 --to-file=$@
 
 clean:
