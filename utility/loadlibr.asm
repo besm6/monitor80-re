@@ -11,7 +11,7 @@
  STATSUM:,SUВР,
  ENDSTAT:,SUВР,
  Э*64:,SUВР,
- *D03460*:,LС,1
+ RETMOD:,LС,1
  IRI:,LС,1
  E70RL:,LС,1
  NLIB:,LС,1
@@ -169,7 +169,7 @@ C-------- CПИCOK BПOЛHE ГOTOB
  ,AEX,3750B
  *0076B:,ATX,*0750B
  GET LIB:,XTA,
- ,ATX,*D03460*
+ ,ATX,RETMOD
  ,ATX,*0762B
  ,XTA,CTN
  ,U1A,*0107B
