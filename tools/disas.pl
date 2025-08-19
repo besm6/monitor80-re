@@ -39,6 +39,8 @@ if (open(D, "$file.dtro") || open(D, "$file.dtr")) {
         print B <D>;
         close(D);
 }
+$cosy2txt = $0;
+$cosy2txt =~ s/disas.pl$/cosy2txt/;
 print B qq/
 *EDIT
 *R:1
@@ -51,6 +53,6 @@ print B qq/
 close(B);
 system(qq@
 dispak -l $b6
-besmtool dump $vol --length=10 --to-file=/dev/stdout | ../tools/cosy2txt | sed '/^ :,EQU,/d' > $file.orig
+besmtool dump $vol --length=10 --to-file=/dev/stdout | $cosy2txt | sed '/^ :,EQU,/d' > $file.orig
 @);
 unlink($b6) unless $keep;
