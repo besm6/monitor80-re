@@ -1,5 +1,4 @@
           G04022:,NAME,DTRAN  /01.06.84/
-          LOADANGO:,SUBP,
           LOADGO:,SUBP,
           WORINF*:,SUBP,
           KCOUNT*:,SUBP,
