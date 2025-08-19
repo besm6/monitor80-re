@@ -1,0 +1,66 @@
+          G05634:,NAME,DTRAN  /01.06.84/
+          15,ATX,
+          ,UTC,*0041B.=77 0000
+          ,AAX,
+          15,ATX,
+          ,*50,156B
+          14,VTM,
+          ,UZA,*0005B
+          14,VTM,5
+          *0005B:15,UTC,-2
+          ,XTA,
+          ,UTC,*0045B
+          ,ATX,
+          14,VZM,*0012B
+          ,UTC,*0042B.=37
+          ,AAX,
+          ,U1A,*0016B
+          ,UTC,*0045B
+          ,XTA,
+          *0012B:,UTC,*0040B.=7777
+          ,AAX,
+          14,ASN,64
+          15,AOX,
+          15,UTM,-1
+          14,VTM,
+          13,UJ,
+          *0016B:14,VTM,1
+          13,UJ,
+          ,UTC,*0044B
+          ,ATX,
+          ,WTC,44B
+          ,XTA,1
+          ,ASN,64-33
+          13,UZA,
+          ,WTC,44B
+          14,VTM,1
+          14,WTC,
+          14,VTM,
+          14,WTC,10B
+          14,UTM,
+          *0025B:14,XTA,
+          13,UZA,
+          ,UTC,*0044B
+          ,AEX,
+          ,UTC,*0041B.=77 0000
+          ,AAX,
+          ,UZA,*0032B
+          14,UTM,1
+          ,UJ,*0025B
+          *0032B:14,XTA,
+          ,ASN,64+12
+          ,ASN,64-12
+          14,ATX,
+          ,UTC,*0044B
+          ,XTA,
+          ,UTC,*0043B.=777
+          ,AAX,
+          ,OCT,7015 0000 7
+          ,OCT,6700 0000 022
+          *0040B:,LOG,7777
+          *0041B:,LOG,77 0000
+          *0042B:,LOG,37
+          *0043B:,LOG,777
+          *0044B:,BSS,1
+          *0045B:,BSS,1
+          ,END,

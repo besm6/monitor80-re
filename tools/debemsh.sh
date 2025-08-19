@@ -1,0 +1,48 @@
+#!/bin/sh
+line=1
+if [ "$1" = '-v' ]; then line=0; shift; fi
+cat > debemsh$$.b6 << EOF
+шифр 419900зс5^
+еев1а3
+*name
+*bemsh
+inp\$\$\$
+foo	СТАРТ	'1'
+M1      equ     1
+M2      equ     2
+M3      equ     3
+M4      equ     4
+M5      equ     5
+M6      equ     6
+M7      equ     7
+M10     equ    '10'
+M11     equ    '11'
+M12     equ    '12'
+M13     equ    '13'
+M14     equ    '14'
+M15     equ    '15'
+M16     equ    '16'
+M17     equ    '17'
+EOF
+cat "$1" >> debemsh$$.b6
+cat >> debemsh$$.b6 << EOF
+	ФИНИШ
+eoi\$\$\$
+trn\$\$\$
+бтмалф
+end\$\$\$
+*libra:2
+*call dtran(foo)
+text:51
+*stand
+*super
+*edit
+*r:1
+*ll
+*ee
+*end file
+\`\`\`\`\`\`
+еконец
+EOF
+dispak -l debemsh$$.b6
+rm debemsh$$.b6

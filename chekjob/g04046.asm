@@ -1,0 +1,8 @@
+ G04046:,NAME,
+ *REGIM//:,LC,1
+ ,XTA,*REGIM//
+ ,UTC,=:4
+ ,AOX,
+ ,ATX,*REGIM//
+ 13,UJ,
+ ,END,
