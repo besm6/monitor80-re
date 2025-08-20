@@ -25,7 +25,7 @@ workvol:
 
 silver.ovl: workvol *.asm
 	besmtool write $(WORKVOL) --start=0 --length=3 --from-file=/dev/zero
-	../tools/overlay.pl $(WORKVOL) 'chekjob*' *.asm
+	../tools/overlay.pl -o ' chekjob*(newsxx)' $(WORKVOL) 'chekjob*' *.asm newsxx.f
 	besmtool dump $(WORKVOL) --start=1 --length=3 --to-file=$@
 
 clean:

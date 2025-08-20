@@ -5,10 +5,14 @@ use open ':encoding(UTF-8)';
 use open ':std', ':encoding(UTF-8)';
 
 $verbose = 0;
+@over = ();
+while (1) {
 if ($#ARGV >= 0 && $ARGV[0] eq '-v') { $verbose = 1; shift @ARGV; }
-
+elsif ($#ARGV > 0 && $ARGV[0] eq '-o') { push @over, $ARGV[1]; shift @ARGV; shift @ARGV; }
+else { last; }
+}
 $vol = 0;
-die "Usage: asm.pl [-v] volume# rootmod files\n" if $#ARGV < 2;
+die "Usage: overlay.pl [-v] [-o overlay-spec]... volume# rootmod files\n" if $#ARGV < 2;
 
 $vol = $ARGV[0];
 shift @ARGV;
@@ -38,6 +42,9 @@ print B qq/
 *libra:2
 *call overlay*
  anything($root)
+/;
+print B join '\n', @over if @over;
+print B qq/
 *end record
 *call ocatalog
 / unless $verbose;
