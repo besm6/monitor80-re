@@ -47,6 +47,7 @@ print B qq/шифр 419999ЗС5^
  ,sj,
  n:,bss,1
  ,end,
+*libra:2
 *execute
 *end file
 ``````

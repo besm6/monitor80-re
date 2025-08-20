@@ -6,10 +6,10 @@ use open ':std', ':encoding(UTF-8)';
 
 while (<>) {
         $line = $_;
-        while ($line =~ /(........)   \d\d \d\d \d\d  \d\d\d\d\d/) {
+        while ($line =~ /(........)   ...\d\d \d\d  \d\d\d\d\d/) {
                 $mod = $1;
                 $mod =~ s/ //g;
                 print "$mod\n";
-                $line =~ s/........   \d\d \d\d \d\d  \d\d\d\d\d//;
+                $line =~ s/........   ...\d\d \d\d  \d\d\d\d\d//;
         }
 }

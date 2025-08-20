@@ -1,7 +1,7 @@
           G04052:,NAME,DTRAN  /01.06.84/
           KCOUNT*:,SUBP,
           LUN*MON:,SUBP,
-          *D02060*:,LC,1
+          SAVLTAP:,LC,1
           D03611:,SUBP,
           D03612:,SUBP,
           D03614:,SUBP,
@@ -14,7 +14,7 @@
           *0000B:8,BASE,*
           ,ITA,13
           ,ATX,*0121B
-          ,XTA,*D02060*
+          ,XTA,SAVLTAP
           ,AAX,*0112B.=:01
           ,U1A,*0012B
           ,XTA,D03611
@@ -82,7 +82,7 @@
           ,XTA,D03611
           ,AEX,*0110B.=6HKEYE72
           ,U1A,*0065B
-          ,XTA,*D02060*
+          ,XTA,SAVLTAP
           ,AAX,*0112B.=:01
           ,U1A,*0066B
           ,XTA,*0114B.=1

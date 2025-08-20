@@ -33,7 +33,9 @@ trn\$\$\$
 end\$\$\$
 *libra:2
 *call dtran(foo)
-text:51
+EOF
+if [ "$2" != '' ]; then cat "$2" >> debemsh$$.b6
+cat >> debemsh$$.b6 << EOF
 *stand
 *super
 *edit

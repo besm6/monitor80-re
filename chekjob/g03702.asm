@@ -2,7 +2,7 @@
           MONCARD*:,SUBP,
           ERROFLG*:,SUBP,
           LUN*MON:,SUBP,
-          *D02060*:,LC,1
+          SAVLTAP:,LC,1
           *D05205*:,LC,3
           G05210:,SUBP,
           G05243:,SUBP,
@@ -50,14 +50,14 @@
           ,ITS,14
           ,XTS,*0047B
           13,VJM,LUN*MON
-          *0026B:,XTA,*D02060*
+          *0026B:,XTA,SAVLTAP
           ,AAX,*0046B
           ,U1A,*0030B
           13,VJM,PUTIBM*
           *0030B:,XTA,
           ,WTC,*0054B
           ,ATX,
-          ,XTA,*D02060*
+          ,XTA,SAVLTAP
           ,ASN,64+45
           ,UZA,*0035B
           ,XTA,*0047B
