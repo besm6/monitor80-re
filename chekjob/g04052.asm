@@ -2,10 +2,7 @@
           KCOUNT*:,SUBP,
           LUN*MON:,SUBP,
           SAVLTAP:,LC,1
-          D03611:,SUBP,
-          D03612:,SUBP,
-          D03614:,SUBP,
-          D03615:,SUBP,
+          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,D03615
           *D05453*:,LC,1
           *D05454*:,LC,34
           *D05516*:,LC,1

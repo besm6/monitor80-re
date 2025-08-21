@@ -1,9 +1,8 @@
 ﻿          G04720:,NAME,DTRAN  /01.06.84/
           MONCARD*:,SUBP,
           LUN*MON:,SUBP,
-          D03612:,SUBP,
+          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,D03615
           G05634:,SUBP,
-          GAK/6:,EQU,D03612+1
           GAL/1:,EQU,MONCARD*+8
           *0000B:8,BASE,*
           ,STI,9
@@ -11,7 +10,7 @@
           ,ITA,13
           ,ITS,
           10,XTA,1
-          ,ATX,GAK/6
+          ,ATX,D03612+1
           ,XTA,
           9,ATX,
           12,VTM,-2
