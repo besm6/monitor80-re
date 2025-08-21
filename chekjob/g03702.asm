@@ -4,8 +4,8 @@
           LUN*MON:,SUBP,
           SAVLTAP:,LC,1
           *D05205*:,LC,3
-          G05210:,SUBP,
-          G05243:,SUBP,
+          HEADER:,SUBP,
+          HEADER3:,SUBP,
           PUTIBM*:,SUBP,
           GAM/3:,EQU,MONCARD*+3
           GAM/5:,EQU,*D05205*+2
@@ -29,13 +29,13 @@
           14,VLM,*0011B
           14,VTM,MONCARD*
           ,ITS,14
-          13,VJM,G05210
+          13,VJM,HEADER
           14,VTM,MONCARD*
           14,XTA,1
           ,AEX,*0051B
           ,UZA,*0017B
           ,ITS,14
-          13,VJM,G05243
+          13,VJM,HEADER3
           *0017B:14,VTM,MONCARD*
           ,ITS,14
           14,UTM,15B
