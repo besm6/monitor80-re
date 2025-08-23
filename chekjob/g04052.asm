@@ -2,7 +2,7 @@
           KCOUNT*:,SUBP,
           LUN*MON:,SUBP,
           SAVLTAP:,LC,1
-          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,D03615
+          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,ERROR
           *D05453*:,LC,1
           *D05454*:,LC,34
           *D05516*:,LC,1
@@ -72,7 +72,7 @@
           ,XTS,*0107B.=17
           13,VJM,LUN*MON
           ,XTA,*0114B.=1
-          ,ATX,D03615
+          ,ATX,ERROR
           ,UJ,*0034B
           G04116:,ENTRY,
           :8,VTM,*0000B

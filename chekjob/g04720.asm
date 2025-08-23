@@ -1,7 +1,7 @@
 ﻿          G04720:,NAME,DTRAN  /01.06.84/
           MONCARD*:,SUBP,
           LUN*MON:,SUBP,
-          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,D03615
+          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,ERROR
           G05634:,SUBP,
           GAL/1:,EQU,MONCARD*+8
           *0000B:8,BASE,*

@@ -1,4 +1,4 @@
- G04640:,NAME,
+ CHECK:,NAME,
           LUN*MON:,SUBP,
           ,STI,12
           ,ATI,11
@@ -36,14 +36,14 @@
           ,ATI,13
           ,STI,
           13,UJ,
-          *0023B:14,VTM,*0042B.=6HMHOГOB
+          *0023B:14,VTM,toomany
           ,ITS,14
           14,UTM,5
           ,ITS,14
           ,XTS,*0052B
           13,VJM,LUN*MON
           ,SJ,
-          *0027B:14,VTM,*0034B.=6HOШИБKA
+          *0027B:14,VTM,badcard
           ,ITS,14
           14,UTM,5
           ,ITS,14
@@ -52,14 +52,8 @@
           ,XTA,*0050B
           12,ATX,
           ,UJ,*0021B
-          *0034B:,ISO,12HOШИБKA B KAP
-          ,ISO,6HTE '47'ЗA
-          ,ISO,12HПPOC PECYPCA
-          ,ISO,1H'47'
-          *0042B:,ISO,12HMHOГOBATO KA
-          ,ISO,6HPT '47'ЗA
-          ,ISO,12HПPOC PECYPCA
-          ,ISO,1H'47'
+          badcard:,ISO,36HOШИБKA B KAPTE '47'ЗAПPOC PECYPCA'47'
+          toomany:,ISO,36HMHOГOBATO KAPT '47'ЗAПPOC PECYPCA'47'
           *0050B:,LOG,1
           *0051B:,OCT,0160 34
           *0052B:,LOG,4
