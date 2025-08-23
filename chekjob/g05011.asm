@@ -1,11 +1,11 @@
  G05011:,NAME,
           KCOUNT*:,SUBP,
           LUN*MON:,SUBP,
- *D03521*:LC,BLOCK,D03521,D03522,D03523,D03524(5),D03531(6)
+ *CARD*:LC,BLOCK,D03521(14)
           *D05702*:,LC,1
           ISO*TEX*:,SUBP,
           ,STI,
-          ,XTA,D03523
+          ,XTA,D03521+2
           ,ASN,64-8
           ,YTA,
           ,AEX,*0153B
@@ -13,7 +13,7 @@
           13,MTJ,12
           ,XTA,
           ,ATX,*0141B
-          ,XTA,D03524+1
+          ,XTA,D03521+4
           ,AEX,*0166B
           ,UZA,*0014B
           ,AEX,*0166B
@@ -22,20 +22,20 @@
           *0010B:,XTA,*0155B
           ,ATX,*0144B
           ,UJ,*0015B
-          *0012B:,XTA,D03524
+          *0012B:,XTA,D03521+3
           ,AEX,*0166B
           ,UZA,*0014B
           ,UJ,*0010B
           *0014B:,XTA,*0157B
           ,ATX,*0144B
-          *0015B:,XTA,D03522
+          *0015B:,XTA,D03521+1
           ,APX,*0150B
           ,ASN,64+32
           ,ATX,*0145B
           ,*50,127B
           ,AAX,*0144B
           12,UZA,
-          ,XTA,D03523
+          ,XTA,D03521+2
           ,AEX,*0156B
           14,VTM,-5
           *0023B:,ASN,64-8
@@ -63,19 +63,19 @@
  G05050:,ENTRY,
           ,STI,
           13,MTJ,12
-          ,XTA,D03522
+          ,XTA,D03521+1
           ,APX,*0150B
           ,ASN,64+32
           ,ATX,*0145B
-          ,XTA,D03524
+          ,XTA,D03521+3
           ,APX,*0151B
           ,ASN,64+36
           ,ATX,*0146B
-          ,XTA,D03523
+          ,XTA,D03521+2
           ,APX,*0151B
           ,ASN,64+36
           ,ATX,*0147B
-          ,XTA,D03524+1
+          ,XTA,D03521+4
           ,AEX,*0171B
           ,UZA,*0050B
           ,XTA,*0161B
@@ -97,21 +97,21 @@
           ,AAX,*0167B
           ,AEX,*0164B
           ,U1A,*0122B.=41 0000 0040 0015
-          ,XTA,D03522
+          ,XTA,D03521+1
           ,AAX,*0170B
           ,AEX,*0160B
           ,U1A,*0122B.=41 0000 0040 0015
           ,ATX,*0134B
           10,VTM,-8
-          ,XTA,D03522
+          ,XTA,D03521+1
           ,ASN,64+16
           11,VJM,*0104B
-          ,XTA,D03522
+          ,XTA,D03521+1
           ,ASN,64+8
           11,VJM,*0104B
-          ,XTA,D03522
+          ,XTA,D03521+1
           11,VJM,*0104B
-          ,XTA,D03523
+          ,XTA,D03521+2
           ,ATX,*0135B
           ,XTA,
           ,ATX,*0136B

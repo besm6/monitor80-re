@@ -41,6 +41,18 @@ def expand(text: str, macros: dict) -> str:
 
 
 def evaluate_arith(text: str) -> str:
+
+    # Define the regular expression pattern to find octal numbers followed by 'B'
+    octal_pattern = r'(?<=[,+])[0-7]+B'
+
+    # Use re.sub with a lambda function for the replacement
+    # The lambda function takes a match object and returns the decimal equivalent as a string
+    replaced_string = re.sub(
+        octal_pattern,
+        lambda m: str(int(m.group()[:-1], 8)),
+        text
+    )
+
     """
     Find every constant integer expression (only + and -) and replace it
     by its integer value.
@@ -51,8 +63,7 @@ def evaluate_arith(text: str) -> str:
         # integers and +/- operators.
         value = eval(expr)            # noqa: S307  (intended)
         return str(value)
-
-    return CONST_EXPR_RE.sub(compute, text)
+    return CONST_EXPR_RE.sub(compute, replaced_string)
 
 
 # ----------------------------------------------------------------------
@@ -99,4 +110,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

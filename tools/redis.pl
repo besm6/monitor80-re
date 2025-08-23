@@ -59,4 +59,10 @@ system(qq@
 dispak -l $b6
 besmtool dump $vol --length=10 --to-file=/dev/stdout | $cosy2txt | sed '/^ :,EQU,/d' > $file.orig
 @);
-unlink($b6) unless $keep;
+
+END {
+    if (!$keep && -e $b6) {
+        unlink $b6;
+    }
+}
+

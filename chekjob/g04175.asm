@@ -1,7 +1,7 @@
           G04175:,NAME,DTRAN  /01.06.84/
-          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,ERROR
+          *FLAGS*:LC,BLOCK,D03611,D03612(2),PRIOFL,ERROR
           G04052:,SUBP,
-          G05606:,SUBP,
+          IFPRIO:,SUBP,
           G05607:,SUBP,
           G05625:,SUBP,
           ,ATX,*0037B
@@ -23,11 +23,11 @@
           ,APX,*0035B
           ,AUX,*0034B
           ,ATX,*0037B
-          ,WTC,D03614
+          ,WTC,PRIOFL
           12,VTM,
           12,VZM,*0015B
           ,XTA,*0037B
-          13,VJM,G05606
+          13,VJM,IFPRIO
           *0015B:,WTC,44B
           13,VTM,1
           13,WTC,

@@ -2,12 +2,12 @@
           KCOUNT*:,SUBP,
           LUN*MON:,SUBP,
           SAVLTAP:,LC,1
-          *D03611*:LC,BLOCK,D03611,D03612(2),D03614,ERROR
+          *FLAGS*:LC,BLOCK,D03611,D03612(2),PRIOFL,ERROR
           *D05453*:,LC,1
           *D05454*:,LC,34
           *D05516*:,LC,1
           G05517:,SUBP,
-          G05606:,SUBP,
+          IFPRIO:,SUBP,
           *0000B:8,BASE,*
           ,ITA,13
           ,ATX,*0121B
@@ -57,10 +57,10 @@
           ,ATX,*D05454*
           14,UTM,-1
           14,XTA,
-          ,WTC,D03614
+          ,WTC,PRIOFL
           13,VTM,
           13,VZM,*0034B
-          13,VJM,G05606
+          13,VJM,IFPRIO
           *0034B:,STI,
           ,WTC,*0121B
           ,UJ,
@@ -87,10 +87,10 @@
           ,XTA,*0114B.=1
           ,ASN,64-2
           ,AOX,*D05516*
-          ,WTC,D03614
+          ,WTC,PRIOFL
           13,VTM,
           13,VZM,*0054B
-          13,VJM,G05606
+          13,VJM,IFPRIO
           *0054B:,WTC,44B
           14,VTM,1
           14,WTC,
@@ -122,12 +122,12 @@
           ,ASN,64+24
           ,AAX,*0113B.=7777
           15,AOX,
-          ,WTC,D03614
+          ,WTC,PRIOFL
           13,VTM,
           13,VZM,*0076B
-          13,VJM,G05606
+          13,VJM,IFPRIO
           *0076B:,*65,KCOUNT*
-          13,VJM,G05606
+          13,VJM,IFPRIO
           12,UTM,1
           ,UJ,*0067B
           ,LOG,1365 1457
