@@ -10,7 +10,7 @@
           IFPRIO:,SUBP,
           *0000B:8,BASE,*
           ,ITA,13
-          ,ATX,*0121B
+          ,ATX,I13
           ,XTA,SAVLTAP
           ,AAX,*0112B.=:01
           ,U1A,*0012B
@@ -26,15 +26,15 @@
           ,ITA,14
           ,ATX,*D05453*
           ,ATX,*D05454*
-          *0012B:,XTA,*0110B.=6HKEYE72
+          *0012B:,XTA,KEYE72.=6HKEYE72
           ,ATX,D03611
-          *0013B:,WTC,*0121B
+          *0013B:,WTC,I13
           ,UJ,
           G04066:,ENTRY,
           8,VTM,*0000B
           ,ATI,11
           ,ITA,13
-          ,ATX,*0121B
+          ,ATX,I13
           ,WTC,*D05454*
           14,VTM,
           11,XTA,
@@ -62,7 +62,7 @@
           13,VZM,*0034B
           13,VJM,IFPRIO
           *0034B:,STI,
-          ,WTC,*0121B
+          ,WTC,I13
           ,UJ,
           *0036B:,XTA,D03612+1
           14,ATX,4
@@ -77,10 +77,10 @@
           G04116:,ENTRY,
           :8,VTM,*0000B
           ,ITA,13
-          ,ATX,*0121B
+          ,ATX,I13
           ,XTA,D03611
-          ,AEX,*0110B.=6HKEYE72
-          ,U1A,*0065B
+          ,AEX,KEYE72
+          ,U1A,RET
           ,XTA,SAVLTAP
           ,AAX,*0112B.=:01
           ,U1A,*0066B
@@ -106,15 +106,15 @@
           ,ITA,14
           ,ASN,64-24
           13,AOX,
-          ,ATX,*0122B
-          ,XTA,*0110B.=6HKEYE72
-          ,*72,*0122B
-          *0065B:,WTC,*0121B
+          ,ATX,E72CW
+          ,XTA,KEYE72
+          ,*72,E72CW
+          RET:,WTC,I13
           ,UJ,
           *0066B:,WTC,*D05453*
           12,VTM,
           *0067B:12,XTA,
-          ,UZA,*0065B
+          ,UZA,RET
           ,APX,*0116B.=:7777 0000 7777
           ,AUX,*0115B.=:0010 3777 7777
           ,AOX,*0120B.=:77
@@ -134,7 +134,7 @@
           *0102B:,ISO,24HBTOPИЧHЫЙ MAT.HOM.ДЛЯ
           ,LOG,
           *0107B:,LOG,17
-          *0110B:,ISO,6HKEYE72
+          KEYE72:,ISO,6HKEYE72
           ,TEXT,8H//LINTER
           *0112B:,OCT,01
           *0113B:,LOG,7777
@@ -143,6 +143,6 @@
           *0116B:,OCT,7777 0000 7777
           *0117B:,LOG,77 0000
           *0120B:,OCT,77
-          *0121B:,BSS,1
-          *0122B:,BSS,1
+          I13:,BSS,1
+          E72CW:,BSS,1
           ,END,

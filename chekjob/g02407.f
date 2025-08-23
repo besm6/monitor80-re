@@ -9,7 +9,7 @@ C     The argument is MONCARD*
      c     '/R,RW MODE  /(0.. 777   )',5*' ','*DEFINE:TT',12*' '/
       data NUZ2/' 35000',' 40000','    20',' '/,NUZ7/' 36000'/
       data k542/377 7777 7777B/
-      common/d03520/d03520
+      common/LINENO/LINENO
       common/CARD/CARD(14)
       common/DFLT/DFLT(42)
       common/FLAGS/D03611,D03612,D03613,PRIOFL,ERROR
@@ -18,7 +18,7 @@ C     The argument is MONCARD*
 C     CLARG is an argument to CLOPEN and CLDECO
       common/CLARG/CLARG(4)
       integer CARD
-      integer DFLT,d03520,d03611,d03612,PRIOFL,ERROR
+      integer DFLT,LINENO,d03611,d03612,PRIOFL,ERROR
       integer d03616,CLARG,dummy
       data k552/6H*NAME ,
      *0120 2102 2000 0000B,
@@ -86,9 +86,9 @@ C     CLARG is an argument to CLOPEN and CLDECO
      *0110 2100 0000 0000B,
      *6H*MS   ,
      *0110 2100 0000 0000B/
-      d03520=0
-      call G02016
-      call G03702(k543)
+      LINENO=0
+      call MONRED
+      call START(k543)
       if(k543.eq.0b)goto 145
       if(M(10).eq.' ')goto 145
       k544 = 'CARD'.shift.16
@@ -156,9 +156,9 @@ C     CLARG is an argument to CLOPEN and CLDECO
  145  continue
       call clopen(k552,M,CARD,CLARG)
 C     A dummy call, does nothing
-      call G04635(DFLT)
- 153  call G02016
-      d03520=d03520+1
+      call EMPTY(DFLT)
+ 153  call MONRED
+      LINENO=LINENO+1
       if(M(1).eq.'*     ')goto 244
       if(M(1).ne.'*check')goto 166
       k544=M(2).shift.40
@@ -166,7 +166,7 @@ C     A dummy call, does nothing
  166  call cldeco(CLARG)
       if(CARD(1).ne.'=ERROR')goto 175
       ERROR=1
-      call G02017
+      call PRERR
       goto 244
  175  k547=CLARG(4)
       if(k547.eq.0)goto 467
@@ -289,7 +289,7 @@ C     30: *DUMON
       M(8)=CARD(5)
       M(9)=CARD(3)
       call PRCARD
-      d03520=0
+      LINENO=0
       goto 456
  446  continue
       M(10)=NUZ7
@@ -297,7 +297,7 @@ C     30: *DUMON
       call PRCARD
       goto 456
  453  continue
-      d03520=-d03520
+      LINENO=-LINENO
  456  continue
       NUZ6=M(10)
       call DUMON(M)
@@ -308,7 +308,7 @@ C perhaps unused
       goto 244
  467  if(ERROR.ne.0b) stop
       if(NUZ5.eq.' ')goto 503
-      d03520=-d03520
+      LINENO=-LINENO
       CARD(1)='*DUMON'
       CARD(2)='*NAME '
       call DUMON(CARD)

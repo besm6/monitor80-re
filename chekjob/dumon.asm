@@ -7,14 +7,14 @@
           MONREAD*:,SUBP,
           PRINT8:,SUBP,
           LUN*MON:,SUBP,
-          *D03520*:,LC,1
+          *LINENO*:,LC,1
           GAL/7:,EQU,KCOUNT*+2
           GAM/1:,EQU,KCOUNT*+1
           *0000B:11,BASE,*
           ,ATX,*0023B
           ,ITA,13
           ,ITS,
-          14,VTM,*D03520*
+          14,VTM,*LINENO*
           ,ITS,14
           ,XTS,*0023B
           14,VTM,*0021B.=6HDUREAD
