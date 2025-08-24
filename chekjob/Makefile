@@ -3,7 +3,7 @@ WORKVOL = 80
 MODULES = chekjob cheknews clopen e50_100 g02346 \
 g03270 g03702 g03757 dumon g04046 \
 g04052 g04175 g04635 g04640 g04720 g05011 handle \
-g05517 g05606 g05634 mvstack os_besm6 header
+g05517 ifprio g05634 mvstack os_besm6 header
 
 FORTRAN = g02407 newsxx
 

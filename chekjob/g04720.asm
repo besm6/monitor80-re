@@ -80,7 +80,8 @@
           ,ITS,14
           ,XTS,*0052B.=1
           13,VJM,LUN*MON
-          ,OCT,0041 0000 0074
+          ,STI,
+          ,SJ,
           *0051B:,LOG,7777
           *0052B:,LOG,1
           *0053B:,ISO,6HOШ/CДГ
