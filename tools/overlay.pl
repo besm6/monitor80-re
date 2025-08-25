@@ -40,6 +40,7 @@ close (F);
 
 print B qq/
 *libra:2
+*call yesmemory
 *call overlay*
  anything($root)
 /;

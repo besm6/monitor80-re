@@ -1,8 +1,10 @@
 #!/bin/sh
+if [ "$WORKVOL" = ""]; then echo Need env var WORKVOL ; exit 1; fi
 line=1
 if [ "$1" = '-v' ]; then line=0; shift; fi
 cat > debemsh$$.b6 << EOF
 шифр 419900зс5^
+dis 67($WORKVOL-wr)^
 еев1а3
 *name
 *bemsh
@@ -34,13 +36,13 @@ end\$\$\$
 *libra:2
 *call dtran(foo)
 EOF
-if [ "$2" != '' ]; then cat "$2" >> debemsh$$.b6
+if [ "$2" != '' ]; then cat "$2" >> debemsh$$.b6; fi
 cat >> debemsh$$.b6 << EOF
 *stand
 *super
 *edit
 *r:1
-*ll
+*w:67
 *ee
 *end file
 \`\`\`\`\`\`
@@ -48,3 +50,4 @@ cat >> debemsh$$.b6 << EOF
 EOF
 dispak -l debemsh$$.b6
 rm debemsh$$.b6
+besmtool dump $WORKVOL --length=10 --to-file=/dev/stdout | `dirname $0`/cosy2txt

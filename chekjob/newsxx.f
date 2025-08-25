@@ -48,3 +48,6 @@
   143   return
         end
 *assem
+ NEWSXXX:,NAME,
+ NEWSXX:,SUBP,
+ ,END,

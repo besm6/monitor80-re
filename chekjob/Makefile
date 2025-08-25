@@ -32,7 +32,7 @@ workvol:
 
 silver.ovl: workvol $(addsuffix .asm,$(MODULES)) $(addsuffix .f,$(FORTRAN))
 	besmtool write $(WORKVOL) --start=0 --length=3 --from-file=/dev/zero
-	../tools/overlay.pl -o ' chekjob*(newsxx)' $(WORKVOL) 'chekjob*' *.asm *.f
+	../tools/overlay.pl -o ' chekjob*(newsxxx)' $(WORKVOL) 'chekjob*' *.asm *.f
 	besmtool dump $(WORKVOL) --start=1 --length=3 --to-file=$@
 
 header.asm: ../inputcal/header.asm
