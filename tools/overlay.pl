@@ -5,9 +5,11 @@ use open ':encoding(UTF-8)';
 use open ':std', ':encoding(UTF-8)';
 
 $verbose = 0;
+$standard = 0;
 @over = ();
 while (1) {
 if ($#ARGV >= 0 && $ARGV[0] eq '-v') { $verbose = 1; shift @ARGV; }
+elsif ($#ARGV >= 0 && $ARGV[0] eq '-s') { $standard = 1; shift @ARGV; }
 elsif ($#ARGV > 0 && $ARGV[0] eq '-o') { push @over, $ARGV[1]; shift @ARGV; shift @ARGV; }
 else { last; }
 }
@@ -26,6 +28,7 @@ print B qq/шифр 419999ЗС5^
 ЛЕН 60($vol-WR)^
 ЕЕВ1А3
 *NAME
+*call yesmemory
 *MADLEN
 /;
 print B "*NO LIST\n" unless $verbose;
@@ -40,15 +43,18 @@ close (F);
 
 print B qq/
 *libra:2
-*call yesmemory
+/;
+if ($standard) {  print B "*call overlay\n"; } else {
+print B qq/
 *call overlay*
  anything($root)
 /;
+}
 print B join '\n', @over if @over;
 print B qq/
 *end record
 *call ocatalog
-/ unless $verbose;
+/;
 print B qq/
 *END FILE
 ``````

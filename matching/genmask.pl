@@ -17,6 +17,7 @@ open(F, "$ARGV[0]") || die "Cannot open $ARGV[0]\n";
 sub task {
 open(B, ">$b6") || die "Cannot open $b6 for writing\n";
 print B qq/шифр 419999ЗС5^
+dis 60(2148)^
 ЕЕВ1А3
 *NAME
       subroutine pr(a, n)
@@ -47,7 +48,8 @@ print B qq/шифр 419999ЗС5^
  ,sj,
  n:,bss,1
  ,end,
-*libra:2
+*tapes:601300
+*libra:60
 *execute
 *end file
 ``````
@@ -76,8 +78,9 @@ unlink($b6) unless $keep;
 $comp = $0;
 $comp =~ s/genmask.pl$/compare_octals.py/;
 
-# printf "Comparing $mod\n";
+print "Comparing $mod ...";
 $out = `$comp base$$ shifted$$`;
+print "done\n";
 
 if ($out eq '') {
         print STDERR "Mask generation failed for $mod\n";
