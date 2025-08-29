@@ -1,8 +1,8 @@
 *ftn
       subroutine g20112(arg)
       common/buffer/BUF(1024)
-      external g20510,g20511
-      integer g20510,g20511
+      external g20510,getchr
+      integer g20510,getchr
       integer POS,k241,WIDTH,k243,unused,ENDL,RESPON,k247,WORK,SECTOR
       integer CBEGIN,CEND
       integer CURC
@@ -18,7 +18,7 @@
          CEND=6*SECTOR+1530
          do 155 CURC=CBEGIN,CEND
             k310(1)=CURC-1
-            POS=g20511(k310,BUF)-1
+            POS=getchr(k310,BUF)-1
             if (IPOS.ne.-1)goto 45
             IPOS=POS+1
  42         IPOS=IPOS-1
@@ -29,9 +29,8 @@
             if(POS.lt.120)goto 101
             if(POS.lt.127)goto 104
             k241=POS-128
-            if(k241.le.WIDTH)goto 63
-            k241=k241-WIDTH
- 63         goto 107
+            if(k241.gt.WIDTH)k241=k241-WIDTH
+            goto 107
  64         k243=g20510(POS)
  67         k241=k241+1
             if(k241.gt.WIDTH) k241=WIDTH
