@@ -21,11 +21,19 @@ reduol.orig:
 loadlibr.orig:
 	besmtool dump 2048 --start=0206 --length=1 > $@
 
+boot.orig:
+	 besmtool dump 2048 --start=0210 --length=1 | head -100 > $@
+	sed -i '100,$$d' $@
+
 reduol.dis: reduol.obj
 	../tools/linker.pl -zone 0207 -top reduol reduol.obj
 
 loadlibr.dis: $(addsuffix .obj,$(LOADLIBR))
 	../tools/linker.pl -zone 0206 -top loadlibr $^
+
+boot.dis: boot.obj
+	../tools/linker.pl -zone 0210 -top boot $^
+	sed -i '100,$$d' $@
 
 %.diff: %.dis %.orig
 	diff -C 3 $^ && touch $@
