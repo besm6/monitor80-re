@@ -68,7 +68,10 @@ if ($listing =~ /\n \*\*\*\*\*\*/) {
         print STDERR $listing;
         die "Compilation failed\n";
 }
+$degak = $cosy2txt = $0;
+$cosy2txt =~ s/asm.pl$/cosy2txt/;
+$degak =~ s/asm.pl$/degak.py/;
 system(qq@
-besmtool dump $vol --length=10 --to-file=/dev/stdout | ../tools/cosy2txt > $basename.dis
+besmtool dump $vol --length=10 --to-file=/dev/stdout | $cosy2txt | $degak > $basename.dis
 @);
 unlink($b6) unless $keep;

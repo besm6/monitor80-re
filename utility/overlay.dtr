@@ -1,0 +1,16 @@
+base:7,0
+equ*:354=nuzzzz,355=cont,356=tmp3,305=copy,271=find0,273=found0
+equ*:167=badcard,332=tmonitor,353=cw,352=tmp0,333=abase,212=arg
+equ*:175=tbadinfo,203=tbadcat,211=t*endr,233=proc,314=badcat,135=perror
+equ*:134=badinfo,140=exit,46=isot,15=getline,22=prline,105=shift
+equ*:1=*,141=*,160=proceed,164=copystlo,102=getname,232=monflag
+equ*:224=data2,225=data3,226=data4,227=data5,230=data6,231=data7
+equ*:111=chkmonit,120=ismonit
+equ*:122=pr1
+equ*:25=l1,35=l2,50=l3,52=l4,56=l5,60=l6,61=l7,64=l8,67=l9,71=l9a
+equ*:77=l10,132=gogetnm,143=l11,145=l12,150=l13,151=l14,152=l15,246=l16
+equ*:310=io1,315=io2,320=io3,213=buf
+liter:334-351
+text:332
+iso:167-211
+

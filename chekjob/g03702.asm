@@ -1,6 +1,6 @@
           START:,NAME,DTRAN  /01.06.84/
           MONCARD*:,SUBP,
-          ERROFLG*:,SUBP,
+          ERROFLG*:,LC,1
           LUN*MON:,SUBP,
           SAVLTAP:,LC,1
           *D05205*:,LC,3

@@ -1,5 +1,7 @@
 export WORKVOL = 80
 MODULES = \
+	overlay \
+	overlay% \
 	newplace 
 
 LOADLIBR = \

@@ -3,7 +3,7 @@
           WORINF*:,SUBP,
           KCOUNT*:,SUBP,
           MONCARD*:,SUBP,
-          ERROFLG*:,SUBP,
+          ERROFLG*:,LC,1
           MONREAD*:,SUBP,
           PRINT8:,SUBP,
           LUN*MON:,SUBP,
