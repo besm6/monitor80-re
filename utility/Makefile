@@ -1,5 +1,6 @@
 export WORKVOL = 80
 MODULES = \
+	дай%си%м \
 	overlay \
 	overlay% \
 	newplace 

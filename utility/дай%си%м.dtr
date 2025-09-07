@@ -1,0 +1,5 @@
+base:7,0
+equ*:11=getbyte,13=nextbyte,14=givebyte,27=noteoln,32=exit,33=alimit
+equ*:35=acurword,43=amonread,40=anoteoln,41=alstbyte,37=curword
+equ*:31=lastbyte,34=lstbtnum,36=bytenum
+equ*:5=again,23=nextline,42=aexit
