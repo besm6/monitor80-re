@@ -1,0 +1,9 @@
+ G17777:,NAME,
+ ,ATI,12
+ 12,XTA,7
+ ,ATI,14
+ 14,UTM,-2
+ ,ITA,14
+ 12,STX,7
+ 13,UJ,
+ ,END,

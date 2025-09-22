@@ -42,7 +42,7 @@ close (F);
 } (@ARGV);
 
 print B qq/
-*libra:2
+*libra:2,22
 /;
 if ($standard) {  print B "*call overlay\n"; } else {
 print B qq/

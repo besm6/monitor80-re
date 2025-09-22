@@ -51,17 +51,24 @@
  *0106B:,Z00,*0115B-C
  9,Z00,STKBASE
  *0107B:15,VTM,STKBASE+1
+ ,*64,is-C
  ,*70,*0061B-C
  ,XTS,*0105B-C
  ,UJ,AIO
+ is:1,,
+ 1,,2
+ 8,,
+ ,,
  *0111B:,LOG,0014 0100 0021 0001. read zone 2 of perm cat
  *0112B:,LOG,0000 0100 0021 0001. write zone 2 of perm cat copy
  *0113B:,LOG,4000 0103 0020 0000. write sector p01s3 to MB20TR00
  *0114B:,LOG,7777 7777 7777 7777
  *0115B:,*71,*0114B-C           . establish new TT I/O mode
  ,XTA,3370B
+ 1,vtm,no cs-C
  ,UZA,*0107B-C
  ,AEX,1770B
+ 1,vtm,mismatch-C
  ,U1A,*0107B-C
  ,XTA,
  ,ATX,3370B
@@ -74,6 +81,7 @@
  1,ARX,
  1,VLM,*0124B-C
  ,AEX,1770B
+ 1,vtm,bad cs-C
  ,U1A,*0107B-C
  ,*70,*0113B-C
  ,WTC,1772B
@@ -94,4 +102,7 @@
  ,WTC,1771B
  ,ATX,3
  13,VJM,1000B
+ no cs:,GOST,18HHET KC'172'
+ mismatch:,GOST,18hнесовпадение кс'172'
+ bad cs:,GOST,18hневерная кс'172'
  ,END,

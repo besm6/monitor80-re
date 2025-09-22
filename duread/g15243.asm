@@ -1,0 +1,9 @@
+ G15243:,NAME,DTRAN  /01.06.84/
+ ,STI,10
+ ,ATI,11
+ ,ITA,10
+ 11,ATX,6
+ ,XTA,
+ 11,STX,7
+ 13,UJ,
+ ,END,

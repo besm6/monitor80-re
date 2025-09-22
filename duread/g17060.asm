@@ -1,0 +1,10 @@
+ G17060:,NAME,
+ ,STI,11
+ ,STI,10
+ ,ATI,9
+ 9,XTA,
+ ,ASN,64-10
+ 10,ARX,
+ 11,STX,
+ 13,UJ,
+ ,END,

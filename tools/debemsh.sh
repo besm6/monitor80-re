@@ -35,6 +35,7 @@ cat >> debemsh$$.b6 << EOF
 	ФИНИШ
 eoi\$\$\$
 trn\$\$\$
+$line-$line
 бтмалф
 end\$\$\$
 *libra:2
@@ -54,4 +55,4 @@ cat >> debemsh$$.b6 << EOF
 EOF
 dispak -l debemsh$$.b6 > /dev/tty
 rm debemsh$$.b6
-besmtool dump $WORKVOL --length=10 --to-file=/dev/stdout | `dirname $0`/cosy2txt
+besmtool dump $WORKVOL --length=16 --to-file=/dev/stdout | `dirname $0`/cosy2txt

@@ -124,15 +124,20 @@ def best_offset_bruteforce(A, B):
     wild = sum(1 for x in B if x == '*')
     best_off = 0
     best_match = -1
+    best_zeros = -1
     for off in range(N - M + 1):
         match = wild
+        zeros = 0
         for i in range(M):
             if B[i] != '*' and B[i] == A[off + i]:
                 match += 1
+                if B[i] == ' 0000000000000000':
+                    zeros += 1
         if match > best_match:
             best_match = match
+            best_zeros = zeros
             best_off = off
-    return best_off, best_match, wild
+    return best_off, best_match, best_zeros, wild
 
 
 def compute_best(A, B):
@@ -168,14 +173,15 @@ def main():
         print('Error: block B is longer than block A', file=sys.stderr)
         sys.exit(1)
 
-    offset, matches, wild = compute_best(block_a, block_b)
+    offset, matches, zeros, wild = compute_best(block_a, block_b)
     total = len(block_b)
-    percent = 100.0 * (matches-wild) / (total-wild)
+    percent = 100.0 * (matches-wild-zeros) / (total-wild-zeros)
     offset += base
     # Output – offset first, then percentage with two decimals
-    if matches > wild and percent > 70:
-        actual = total - wild
-        print(file_b, f'{offset:05o} : {percent:.2f}% of {total:4o}/{actual:4o}')
+    if matches > wild and percent > 50:
+        actual = total - wild - zeros
+        matches -= wild+zeros
+        print(file_b, f'{offset:05o} : {percent:.2f}% of {total:4o}/{actual:4o}/{matches:4o}')
 
 
 if __name__ == '__main__':
