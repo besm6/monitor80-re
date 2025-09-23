@@ -12,17 +12,28 @@
  g03760:,lc,0
  *2a:,lp,4052b-g03760
  g04052:,lc,0
- *3:,lp,4235b-g04052
+ *3:,lp,4066b-g04052
+ g04066:,lc,0
+ *3b:,lp,4175b-g04066
+ g04175:,lc,0
+ *3c:,lp,4235b-g04175
  clopen:,lc,4
  cldeco:,lc,0
- *4:,lp,5421b-cldeco
+ *3a:,lp,5330b-cldeco
+ isotcosy:,lc,0
+ *4:,lp,5421b-isotcosy
  octtdec:,lc,0
  *4a:,lp,5606b-octtdec
  ifprio:,lc,11b
  g05617:,lc,0
  *5:,lp,5703b-g05617
  iso*tex*:,lc,0
- *5a:,lp,6640b-iso*tex*
+ *5a:,lp,6511b-iso*tex*
+ loadf:,lc,0
+ *5b:,lp,6563b-loadf
+ go:,lc,5
+ delete:,lc,0
+ *5c:,lp,6640b-delete
  datapr:,lc,1
  *6:,lp,6746b-datapr-1
  ,end,
