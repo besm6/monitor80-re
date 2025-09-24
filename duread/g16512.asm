@@ -74,12 +74,4 @@
  *0051B:,ISO,6H'''''' ''''
  *0052B:,ISO,6HHOMEPA
  *0053B:,ISO,6H''''''''''''
- ,ISO,6H
- ,BSS,6
- 13,ATX,
- ,ATX,1
- ,ATX,
- ,ATX,75B
- 13,ATX,
- ,ATX,
  ,END,
