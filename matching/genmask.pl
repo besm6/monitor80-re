@@ -17,7 +17,7 @@ open(F, "$ARGV[0]") || die "Cannot open $ARGV[0]\n";
 sub task {
 open(B, ">$b6") || die "Cannot open $b6 for writing\n";
 print B qq/шифр 419999ЗС5^
-dis 60(2148)^
+dis 60(2048)^
 ЕЕВ1А3
 *NAME
       subroutine pr(a, n)
@@ -48,7 +48,7 @@ dis 60(2148)^
  ,sj,
  n:,bss,1
  ,end,
-*tapes:601300
+*tapes:601100
 *libra:60
 *execute
 *end file

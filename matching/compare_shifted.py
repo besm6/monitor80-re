@@ -178,7 +178,7 @@ def main():
     percent = 100.0 * (matches-wild-zeros) / (total-wild-zeros)
     offset += base
     # Output – offset first, then percentage with two decimals
-    if matches > wild and percent > 50:
+    if matches > wild and percent > 40:
         actual = total - wild - zeros
         matches -= wild+zeros
         print(file_b, f'{offset:05o} : {percent:.2f}% of {total:4o}/{actual:4o}/{matches:4o}')

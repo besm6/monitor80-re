@@ -26,7 +26,7 @@ workvol:
 silver.ovl: workvol 
 	besmtool write $(WORKVOL) --start=0 --length=6 --from-file=/dev/zero
 	../tools/overlay.pl -o ' fake(duread*)' $(WORKVOL) fake *.asm *.f
-	besmtool dump $(WORKVOL) --start=1 --length=5 --to-file=$@.
+	besmtool dump $(WORKVOL) --start=1 --length=6 --to-file=$@.
 	dd bs=192 skip=2 < $@. > $@
 	rm $@.
 
