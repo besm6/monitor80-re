@@ -7,9 +7,8 @@ C     *D10273*:LC,BLOCK,GAK/4(3)
  GAK/5:,EQU,*D10273*+3
 C     ,CONT,GAK/5(35)
  *D10341*:,LC,3
- *D10527*:,LC,15
-C     *D10527*:LC,BLOCK,GAK/7(6)
- GAL/0:,EQU,*D10527*+6
+ *D10530*:,LC,14
+ GAL/0:,EQU,*D10530*+5
 C     ,CONT,GAL/0(9)
  STOP*:,SUBP,
  *NUZZZZ*:,SUBP,
@@ -42,7 +41,7 @@ C     ,CONT,GAL/0(9)
  GAN/6:,EQU,GAK/5+1
  GAN/7:,EQU,GAK/5+18
  GAO/0:,EQU,*D10341*+2
- GAO/1:,EQU,*D10527*+1
+ GAO/1:,EQU,*D10530*
  GAO/2:,EQU,GAL/0+6
  GAO/3:,EQU,*D10341*+1
  LOADF:,SUBP,
@@ -384,20 +383,20 @@ C===========================================
  ,ITS,14
  7,XTS,
  13,VJM,G12377
- ,UTC,GAO/1.*D10527*+1
+ ,UTC,GAO/1.*D10530*
  ,XTA,
  7,112,7744B
  ,UZA,*0266B
  *0265B:,UJ,F/SRET
- *0266B:14,VTM,GAO/1.*D10527*+1
+ *0266B:14,VTM,GAO/1.*D10530*
  ,ITS,14
- 14,VTM,GAL/0.*D10527*+6
+ 14,VTM,GAL/0
  ,ITS,14
  14,VTM,*0543B.=I1
  ,ITS,14
  13,VJM,PRINTA
  7,110,7777B
- 1,VTM,GAO/1.*D10527*+1
+ 1,VTM,GAO/1.*D10530*
  1,ATX,
  1,XTA,1
  2,VTM,*D16566*
@@ -431,7 +430,7 @@ C===========================================
  ,ITS,14
  13,VTM,*0265B
  ,UJ,GO
- *0314B:,UTC,GAO/1.*D10527*+1
+ *0314B:,UTC,GAO/1.*D10530*
  ,XTA,
  7,112,7741B
  ,UZA,*0345B
@@ -492,7 +491,7 @@ C===========================================
  14,VTM,*0521B.=I4
  ,ITS,14
  13,VJM,PRINTA
- 14,VTM,GAO/1.*D10527*+1
+ 14,VTM,GAO/1.*D10530*
  ,ITS,14
  14,VTM,GAO/2.GAL/0+6
  ,ITS,14
@@ -500,7 +499,7 @@ C===========================================
  ,ITS,14
  13,VJM,PRINTA
  7,110,7777B
- ,UTC,GAO/1.*D10527*+1
+ ,UTC,GAO/1.*D10530*
  ,ATX,
  14,VTM,*D16566*+5
  ,ITS,14

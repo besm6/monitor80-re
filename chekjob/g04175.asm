@@ -47,6 +47,7 @@
  ,STI,
  ,WTC,I13
  ,UJ,
+ G04225:,ENTRY,
  :,XTA,72B
  ,ASN,64+15
  ,ASN,64-15
