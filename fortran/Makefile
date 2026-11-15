@@ -33,6 +33,10 @@ cbdpr.gold.ovl:
 	dd bs=192 skip=28 < $@. > $@
 	rm $@.
 
+# The error messages of the compiler: zones 0202-0205 of the system volume
+errmsg.txt:
+	besmtool dump 2048 --start=0202 --length=4 --to-file=/dev/stdout | ../tools/ftnerr.py > $@
+
 # The overlays are rebuilt from the Madlen sources (*.asm) alone.
 # `make asm` regenerates them from the disassembly: OV.gold.dis -> *.be
 # (ovsplit.py be) -> BEMSH + DTRAN -> *.asm (ovsplit.py asm adds the common

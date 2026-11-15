@@ -43,6 +43,9 @@ OV.layout.py defines
                 error number, not an address, and stays a number
     NUMBERS     addresses of words whose `уиа` loads a number although it
                 looks like an address (what the rule above cannot see)
+    ERRMSG      file of error messages (`code text`, see ftnerr.py): the error
+                numbers found by the ERRCALLS and NUMBERS rules get a comment
+                with the text in the .asm (the low 12 bits are the code)
     BASES       {module address: register} for a module that keeps its own
                 address in a base register: operands indexed by it are
                 offsets from the module start and stay numbers; with
@@ -71,6 +74,7 @@ import importlib.util
 import os
 import re
 import sys
+import textwrap
 
 M, C, L = 'M', 'C', 'L'
 SYM = re.compile(r'\b([GD])([0-7]{5})\b([+-]\d+)?(?![\d\'])')
@@ -105,6 +109,10 @@ class Layout:
         self.errcalls = set(getattr(m, 'ERRCALLS', ())) | (self.root.errcalls if self.root else set())
         self.bases = {a: '%o' % r for a, r in getattr(m, 'BASES', {}).items()}
         self.numbers = set(getattr(m, 'NUMBERS', ()))
+        self.errmsg = dict(self.root.errmsg) if self.root else {}
+        if getattr(m, 'ERRMSG', None):
+            for l in open(m.ERRMSG, encoding='utf-8'):
+                self.errmsg[int(l[:4], 8)] = l[5:].strip()
         self.low, self.lowend = {}, {}       # resident monitor: addr -> [(name, kind)]
         if getattr(m, 'LOW', None):
             skip = set(getattr(m, 'LOWSKIP', ()))
@@ -200,6 +208,7 @@ def make_be(lay, dis):
     entries = {s: set() for s in body}
     ext = {s: {} for s in body}                      # label -> external name
     out = {}
+    errs = set()                                     # (file name, error number)
     root = lay.root
     rent = root.entry_labels() if root else {}
     for s in body:
@@ -316,6 +325,8 @@ def make_be(lay, dis):
                     (op != 'уиа' and arg.endswith('(М%s)' % lay.bases.get(s))):
                 new = SYM.sub(lambda m: "'%o'" % (int(m.group(2), 8) + int(m.group(3) or 0)), arg)
                 mod = False              # an error number or an offset from the base
+                if op == 'уиа' and NUM.match(new):
+                    errs.add((lay.fname(s), int(NUM.match(new).group(1), 8)))
                 out[s].append((a, lab, op, new))
                 continue
             new = SYM.sub(lambda m, op=op, arg=arg: fix(m, op=op, arg=arg), arg)
@@ -326,6 +337,9 @@ def make_be(lay, dis):
                     new = lowref(op, new, nxt)
             mod = op in ('мода', 'мод') and arg != ''
             out[s].append((a, lab, op, new))
+    with open(lay.ov + '.errnum', 'w') as f:     # for the comments of make_asm
+        for n, x in sorted(errs):
+            f.write('%s %o\n' % (n, x))
     for s in body:                       # labels may have been added by any module
         lines, seen = [], set()
         for a, lab, op, arg in out[s]:
@@ -412,7 +426,18 @@ def make_asm(lay, name):
     for d in decl:
         print(' %s:,LC,%d' % (rename.get(d, d), commons[d]) if d in commons
               else ' %s:,SUBP,' % rename.get(d, d))
+    try:
+        errs = {int(l.split()[1], 8) for l in open(lay.ov + '.errnum')
+                if l.split()[0] == name.lower()}
+    except OSError:
+        errs = set()
     for l in rest[:-1]:
+        m = re.match(r' (?:\S+:)?\d+,VTM,([0-7]+)B$', l)
+        if m and int(m.group(1), 8) in errs and int(m.group(1), 8) & 0o7777 in lay.errmsg:
+            n = int(m.group(1), 8)       # an error number: its message as a comment
+            t = re.sub(r' {3,}\S{1,2}$', '', lay.errmsg[n & 0o7777])   # a stray letter
+            for k, t in enumerate(textwrap.wrap(' '.join(t.split()), 60)):
+                print('C %s %s' % (' ' * len('%o:' % n) if k else '%o:' % n, t))
         print(ren.sub(lambda m: rename[m.group(1)], l))
     if data:
         print(' ,DATA,')

@@ -89,8 +89,11 @@ LIB = {
     0o35024: ('SDEC*', {}),
 }
 LOW = '../lowmap.txt'          # resident monitor names
-# ERRVEC, ERRPRINT, ERRPRIN2, ERRCODE and 05403 (inside PUTAWAY) take an error number
-ERRCALLS = [0o33740, 0o34320, 0o34322, 0o06463, 0o05403]
-# 03477: error number 5003, kept in a cell and passed to ERRVEC later
-NUMBERS = [0o03477]
+# ERRVEC, ERRPRINT, ERRPRIN2, ERRCODE, 05403 (inside PUTAWAY) and
+# 03462 (the common error exit of SCANSTMT) take an error number
+ERRCALLS = [0o33740, 0o34320, 0o34322, 0o06463, 0o05403, 0o03462]
+# 03477: error number 5003, kept in a cell and passed to ERRVEC later;
+# 34443: ERRPRINT's own error 41777 (more than 100 errors)
+NUMBERS = [0o03477, 0o34443]
 BASES = {0o04407: 7}            # PUTAWAY: уиа PUTAWAY(М7), see putaway.dtr
+ERRMSG = 'errmsg.txt'            # the texts of zones 0202-0205 (ftnerr.py)
