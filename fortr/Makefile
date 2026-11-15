@@ -2,6 +2,9 @@ WORKVOL = 80
 
 MODULES := $(shell ../tools/ovsplit.py modules)
 ASM = $(addsuffix .asm,$(MODULES))
+# The root is linked together with its sub-overlay CBDPR:
+# the overlay data are ANYTHING(FORTR*) and FORTR*(CBDPR).
+SUBASM := $(addprefix ../cbdpr/,$(addsuffix .asm,$(shell cd ../cbdpr; ../tools/ovsplit.py modules)))
 
 cmp.out: gold.dis silver.dis
 	../tools/cmp.sh
@@ -36,9 +39,9 @@ asm: gold.dis gold.bin
 workvol:
 	mkdir -p ~/.besm6; touch ~/.besm6/$(WORKVOL)
 
-silver.ovl: workvol $(ASM)
-	besmtool write $(WORKVOL) --start=0 --length=6 --from-file=/dev/zero
-	../tools/overlay.pl $(WORKVOL) 'fortr*' $(ASM) > build.lst
+silver.ovl: workvol $(ASM) $(SUBASM)
+	besmtool write $(WORKVOL) --start=0 --length=10 --from-file=/dev/zero
+	../tools/overlay.pl -o ' fortr*(cbdpr)' $(WORKVOL) 'fortr*' $(ASM) $(SUBASM) > build.lst
 	sed -n '/END RECORD/,/CALL OCATALOG/p' build.lst | grep -v '^ *$$' | sed '1d;$$d' > loadmap
 	besmtool dump $(WORKVOL) --start=1 --length=4 --to-file=$@
 
