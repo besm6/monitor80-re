@@ -41,7 +41,7 @@ cbdpr.gold.ovl:
 asm: fortr.gold.dis fortr.gold.bin cbdpr.gold.dis cbdpr.gold.bin
 	for o in fortr cbdpr; do $(OVSPLIT) $$o be; \
 	  for m in `$(OVSPLIT) $$o modules`; do \
-	    WORKVOL=$(WORKVOL) ../tools/debemsh.sh $$m.be | $(OVSPLIT) $$o asm $$m > $$m.asm; \
+	    WORKVOL=$(WORKVOL) ../tools/debemsh.sh $$m.be `test -f $$m.dtr && echo $$m.dtr` | $(OVSPLIT) $$o asm $$m > $$m.asm; \
 	  done; done
 
 workvol:

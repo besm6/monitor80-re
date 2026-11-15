@@ -29,3 +29,21 @@ LAYOUT = [
     (0o41117, M, 'G41117'),
     (0o41140, C, 'D41140'),
 ]
+# Original names: each routine prints its own name through CBTRACE.
+# CBTRACE, CBERROR, MKITEM, MKITEM2, CBDUMP, PUTDAT, PUTLABEL, PUTITEM,
+# LABTEXT are given names.
+RENAME = {
+    'G35730': 'CBPROC', 'G36050': 'CBBSS', 'G36112': 'CBCE', 'G36212': 'CBEQU',
+    'G36317': 'CDIMSR', 'G36336': 'CFRCH', 'G36406': 'CBPRCZ', 'G37316': 'CBPRDM',
+    'G36370': 'CBTRACE',    # prints the name of the routine entered
+    'G36376': 'CBERROR',    # -> ERRPRINT
+    'G36402': 'MKITEM',     # builds an item for PUTAWAY
+    'G37766': 'MKITEM2',
+    'G37532': 'CBDUMP',     # debugging print through DBGPRINT
+    'G40726': 'PUTDAT',     # item -> PUTAWAY
+    'G41025': 'PUTLABEL',   # statement label: decimal text, items to PUTAWAY
+    'G41101': 'PUTITEM',    # address and code -> PUTAWAY
+    'G41117': 'LABTEXT',    # label number -> text (SDEC)
+}
+LOW = '../lowmap.txt'          # resident monitor names
+ERRCALLS = [0o36376]            # CBERROR (and those of the root)

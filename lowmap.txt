@@ -1,0 +1,31 @@
+
+        MONITOR*   00400        STCAT*   C 00435        ARREAD*  C 00605
+        RESET*   E 00404        ACC*     C 00436        MONCARD* C 00607
+        STOP**   E 00411        LOADANGO   00437        STLOAD*    00640
+        LHEAP*   C 00414        LOADGO   E 00474        RFMRTFLG C 00754
+        A/I0     C 00415        LOADCALL E 00476        IOLIST*  C 00755
+        A/MINUS  C 00416        SETIODCB   00504        *IOXLCB* C 00762
+        CHECKFL* C 00417        IODCB*   C 00504        RESTOP*  C 00763
+        FLAGS    C 00420        TAPELIST C 00543        POINT/PT C 00764
+        MAIN*    C 00421        WORINF*  C 00574        ASTL*    C 00765
+        INFLOAD* C 00422        DATA*    C 00575        NEWOLD*  C 00766
+        LOADLIS* C 00426        TRNAME*  C 00577          CBOБOД   00770
+        AMONIT/  C 00427        KCOUNT*  C 00600
+        RM*      C 00430        *REGIM// C 00604
+
+
+        MONITOR/   01000        PRINT80  E 01323        OH*1     E 01600
+        NEWSTAR* E 01021        STOP*      01361        ISO/GOST   01607
+        ENTRY*   C 01071        LUN*MON    01402        IOXXTTWT   01656
+        FLGEX*   C 01143        DRUMTAP*   01410        TTPRINTD E 01662
+        NOLISFL* C 01144        CLEARLEX   01436        TTPRINT  E 01662
+        FULISFL* C 01145        COSYTISO   01450        TTPRIKS  E 01674
+        TRCAT*   C 01146        COZYTISO E 01450        /IP*     E 01742
+        PUNCHFL* C 01167        MON*ITOR   01524        CHKWORD* C 01756
+        ERROFLG* C 01170        PLBEG    E 01533        TSTATE*  C 01757
+        MONREAD*   01171        PLCLO    E 01541          CBOБOД   01760
+        READ*ERR E 01246        ASAVE*   E 01547
+        IOXXPKRT   01267        SAVE*HID E 01554
+        READ*    E 01271        FOR*ALL  E 01571
+        PRINT8     01323        OH*      E 01573
+

@@ -30,6 +30,23 @@ OV.layout.py defines
     LIB         {address: (module name, {offset: entry name})} for L items
     RENAME      {name in the .be: real name}: BEMSH labels are at most 6
                 characters without `*`, real names appear only in Madlen
+    LOW         load table of the resident monitor (lowmap.txt: name, E for an
+                entry, C for a common block, address); numeric addresses of
+                its routines and common blocks become names (aliases Raaaaa
+                and Kaaaaa in the .be). An operand with an index register, or
+                one that follows `мода X`/`мод X`, is an offset and is left
+                alone; so is the operand of `уиа`, unless `счи`/`счим` of
+                the same register follows within two instructions (an
+                address passed to a procedure). LOWSKIP: names to leave
+    ERRCALLS    addresses of the error routines: the number that `уиа` loads
+                shortly before a call of one of them is an
+                error number, not an address, and stays a number
+    NUMBERS     addresses of words whose `уиа` loads a number although it
+                looks like an address (what the rule above cannot see)
+    BASES       {module address: register} for a module that keeps its own
+                address in a base register: operands indexed by it are
+                offsets from the module start and stay numbers; with
+                `base:R,0` in NAME.dtr DTRAN turns them into local labels
     ROOT        (sub-overlay only) OV name of the root overlay; addresses in
                 the root that the listing shows as numbers become the names of
                 its modules, entries and common blocks
@@ -62,6 +79,7 @@ ADDR = re.compile(r' ?([0-7]{4,5})[: ]')
 DATA_OPS = {'конд', 'конк', 'кк', 'дк', 'пам'}
 # the register of these is not an index (link or counter), the address is a target
 NOIDX = {'уиа', 'пв', 'пвл', 'пио', 'пино', 'цикл'}
+JUMPS = {'пб', 'пв', 'пвл', 'по', 'пе', 'пио', 'пино', 'цикл'}
 
 
 class Layout:
@@ -84,6 +102,29 @@ class Layout:
                 self.RENAME['G%05o' % (a + o)] = x
         r = getattr(m, 'ROOT', None)
         self.root = Layout(r) if r else None
+        self.errcalls = set(getattr(m, 'ERRCALLS', ())) | (self.root.errcalls if self.root else set())
+        self.bases = {a: '%o' % r for a, r in getattr(m, 'BASES', {}).items()}
+        self.numbers = set(getattr(m, 'NUMBERS', ()))
+        self.low, self.lowend = {}, {}       # resident monitor: addr -> [(name, kind)]
+        if getattr(m, 'LOW', None):
+            skip = set(getattr(m, 'LOWSKIP', ()))
+            marks = set()
+            for l in open(m.LOW, encoding='utf-8'):
+                for x in re.finditer(r'(\S+)\s+(?:([EC])\s+)?([0-7]{5})(?=\s|$)', l):
+                    a = int(x.group(3), 8)
+                    marks.add(a)
+                    if x.group(1) != 'CBOБOД' and x.group(1) not in skip:
+                        self.low.setdefault(a, []).append((x.group(1), x.group(2) or 'M'))
+            marks = sorted(marks)
+            for a in self.low:               # an item ends where the next one starts
+                self.lowend[a] = next(b for b in marks if b > a)
+            for a, items in self.low.items():
+                for n, k in items:
+                    self.RENAME[('K' if k == C else 'R') + '%05o' % a] = n
+
+    def low_commons(self):
+        return {'K%05o' % a: self.lowend[a] - a
+                for a, items in self.low.items() for n, k in items if k == C}
 
     def item(self, a):
         p = None
@@ -221,12 +262,70 @@ def make_be(lay, dis):
             ext[s][x] = 1
             return x + idx
 
+        def errnum(i, s=s):
+            """Is a register loaded at line i consumed by a call of an error routine?"""
+            b = body[s]
+            for _ in range(5):
+                i += 1
+                if i >= len(b):
+                    return False
+                o, r = b[i][2], b[i][3]
+                m = re.match(r"(?:[GD]([0-7]{5})|'([0-7]+)')(\(М\d+\))?$", r)
+                if o in ('пв', 'пвл', 'пб') and m:
+                    t = int(m.group(1) or m.group(2), 8)
+                    if t in lay.errcalls:
+                        return True
+                    if o == 'пб' and not m.group(3) and lay.item(t) == s:
+                        i = next(k for k, x in enumerate(b) if x[0] == t) - 1
+                        continue         # a shared tail: follow the jump
+                    return False
+                if o in JUMPS:
+                    return False
+            return False
+
+        def lowref(op, arg, nxt, s=s):
+            """A number that is an address in the resident monitor -> its name."""
+            m = NUM.match(arg)
+            if not m or op in DATA_OPS:
+                return arg
+            if op == 'уиа' and not any(o in ('счи', 'счим') and '(%s)' % r == m.group(2)
+                                       for o, r in nxt):
+                return arg               # уиа loads an offset, unless the register is
+                                         # then pushed: an address passed to a procedure
+            t, idx = int(m.group(1), 8), m.group(2) or ''
+            if idx and op not in NOIDX:
+                return arg
+            jump = op in JUMPS
+            for n, k in lay.low.get(t, ()):          # exact: a routine or a block
+                if (k == C) != jump or len(lay.low[t]) == 1:
+                    x = ('K' if k == C else 'R') + '%05o' % t
+                    ext[s][x] = 1
+                    return x + idx
+            for a, items in lay.low.items():         # inside a common block
+                for n, k in items:
+                    if k == C and a < t < lay.lowend[a] and not jump:
+                        ext[s]['K%05o' % a] = 1
+                        return 'K%05o+%d' % (a, t - a) + idx
+            return arg
+
         out[s] = []
-        for a, lab, op, arg in body[s]:
-            arg = SYM.sub(lambda m, op=op, arg=arg: fix(m, op=op, arg=arg), arg)
-            if root:
-                arg = rootref(op, arg)
-            out[s].append((a, lab, op, arg))
+        mod = False                      # the previous instruction is мода/мод X:
+        for i, (a, lab, op, arg) in enumerate(body[s]):   # this address field is then an offset
+            nxt = [t[2:] for t in body[s][i + 1:i + 3]]      # the next two instructions
+            if (op == 'уиа' and (errnum(i) or a in lay.numbers)) or \
+                    (op != 'уиа' and arg.endswith('(М%s)' % lay.bases.get(s))):
+                new = SYM.sub(lambda m: "'%o'" % (int(m.group(2), 8) + int(m.group(3) or 0)), arg)
+                mod = False              # an error number or an offset from the base
+                out[s].append((a, lab, op, new))
+                continue
+            new = SYM.sub(lambda m, op=op, arg=arg: fix(m, op=op, arg=arg), arg)
+            if not mod:
+                if root:
+                    new = rootref(op, new)
+                if lay.low:
+                    new = lowref(op, new, nxt)
+            mod = op in ('мода', 'мод') and arg != ''
+            out[s].append((a, lab, op, new))
     for s in body:                       # labels may have been added by any module
         lines, seen = [], set()
         for a, lab, op, arg in out[s]:
@@ -278,6 +377,7 @@ def make_asm(lay, name):
     STARTS, KIND, NAME = lay.STARTS, lay.KIND, lay.NAME
     s = next(a for a in STARTS if KIND[a] == M and lay.fname(a) == name.lower())
     commons, rename = lay.commons(), dict(lay.RENAME)
+    commons.update(lay.low_commons())
     if lay.root:
         commons.update(lay.root.commons())
         rename.update(lay.root.RENAME)
@@ -310,7 +410,7 @@ def make_asm(lay, name):
     for l in head:
         print(ren.sub(lambda m: rename[m.group(1)], l))
     for d in decl:
-        print(' %s:,LC,%d' % (d, commons[d]) if d in commons
+        print(' %s:,LC,%d' % (rename.get(d, d), commons[d]) if d in commons
               else ' %s:,SUBP,' % rename.get(d, d))
     for l in rest[:-1]:
         print(ren.sub(lambda m: rename[m.group(1)], l))
