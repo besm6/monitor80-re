@@ -1,12 +1,12 @@
 """
 Layout of the overlay CBDPR (sub-overlay of FORTR*) for ../tools/ovsplit.py.
 Address order; M = module cut from the disassembly, C = common block.
-References to the root are made symbolic with the layout in ROOT.
+References to the root are made symbolic with the layout of ROOT.
 """
 M, C, L = 'M', 'C', 'L'
 BASE = 0o35064                  # address of the overlay header
 END = 0o41141
-ROOT = '../fortr'
+ROOT = 'fortr'
 LAYOUT = [
     (0o35074, M, 'CBDPR'),
     (0o35713, C, 'D35713'),

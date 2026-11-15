@@ -2,21 +2,25 @@
 """
 ovsplit.py - cut a static overlay into modules and common blocks.
 
-Run in the overlay directory, which holds layout.py, gold.bin and gold.dis:
+Run in the directory of the overlay OV, which holds OV.layout.py, OV.gold.bin
+and OV.gold.dis (several overlays of one program share a directory):
 
-    ovsplit.py be [gold.dis]   write NAME.be (BEMSH) for every module piece
-    ovsplit.py asm NAME        filter: DTRAN output of NAME (stdin) -> final
+    ovsplit.py OV be           write NAME.be (BEMSH) for every module piece
+    ovsplit.py OV asm NAME     filter: DTRAN output of NAME (stdin) -> final
                                Madlen text (stdout)
-    ovsplit.py cmp [-v] [build.lst]
+    ovsplit.py OV cmp [-v] [build.lst]
                                after a build: check every module and common
-                               block of silver.bin against gold.bin at its
-                               intended address, using the load map in the
+                               block of OV.silver.bin against OV.gold.bin at
+                               its intended address, using the load map in the
                                overlay.pl listing (one wrong length does not
                                hide everything after it); -v lists the words
-    ovsplit.py map             print the layout table
-    ovsplit.py modules         file names (without suffix) of the module pieces
+    ovsplit.py OV check        byte comparison of OV.silver.bin with
+                               OV.gold.bin (-> OV.cmp.out); prints GOOD when
+                               only the 8-word header differs
+    ovsplit.py OV map          print the layout table
+    ovsplit.py OV modules      file names (without suffix) of the module pieces
 
-layout.py defines
+OV.layout.py defines
     BASE, END   address of the overlay header, address after the last word
     LAYOUT      [(address, kind, name)] in address order, covering everything
                 after the header:
@@ -26,7 +30,7 @@ layout.py defines
     LIB         {address: (module name, {offset: entry name})} for L items
     RENAME      {name in the .be: real name}: BEMSH labels are at most 6
                 characters without `*`, real names appear only in Madlen
-    ROOT        (sub-overlay only) directory of the root overlay; addresses in
+    ROOT        (sub-overlay only) OV name of the root overlay; addresses in
                 the root that the listing shows as numbers become the names of
                 its modules, entries and common blocks
 
@@ -46,7 +50,6 @@ rewritten as `Dccccc+offset`, and the block is declared as an external; the
 `мода 0` in the right half of a word after `пвл` or an extracode, and BEMSH
 does not add one, so it is written out.
 """
-import glob
 import importlib.util
 import os
 import re
@@ -62,12 +65,12 @@ NOIDX = {'уиа', 'пв', 'пвл', 'пио', 'пино', 'цикл'}
 
 
 class Layout:
-    def __init__(self, d='.'):
-        spec = importlib.util.spec_from_file_location(
-            'layout_' + re.sub(r'\W', '_', os.path.abspath(d)), os.path.join(d, 'layout.py'))
+    def __init__(self, ov):
+        spec = importlib.util.spec_from_file_location('layout_' + ov, ov + '.layout.py')
         m = importlib.util.module_from_spec(spec)
+        sys.dont_write_bytecode = True
         spec.loader.exec_module(m)
-        self.dir = d
+        self.ov = ov
         self.BASE, self.END = m.BASE, m.END
         self.STARTS = [a for a, _, _ in m.LAYOUT]
         self.ENDS = self.STARTS[1:] + [m.END]
@@ -80,7 +83,7 @@ class Layout:
             for o, x in e.items():
                 self.RENAME['G%05o' % (a + o)] = x
         r = getattr(m, 'ROOT', None)
-        self.root = Layout(os.path.join(d, r)) if r else None
+        self.root = Layout(r) if r else None
 
     def item(self, a):
         p = None
@@ -104,17 +107,19 @@ class Layout:
     def entry_labels(self):
         """{address: label} of the entries declared in this overlay's .be files."""
         e = {}
-        for f in glob.glob(os.path.join(self.dir, '*.be')):
+        for s in self.STARTS:
+            f = self.fname(s) + '.be'
+            if self.KIND[s] != M or not os.path.exists(f):
+                continue
             for l in open(f, encoding='utf-8'):
                 m = re.match(r'\tвходн\t([GE]([0-7]{5}))$', l)
                 if m:
                     e[int(m.group(2), 8)] = m.group(1)
         return e
 
-
-def gold():
-    d = open('gold.bin', 'rb').read()
-    return [int.from_bytes(d[i:i + 6], 'big') for i in range(0, len(d) - 5, 6)]
+    def words(self, which):
+        d = open('%s.%s.bin' % (self.ov, which), 'rb').read()
+        return [int.from_bytes(d[i:i + 6], 'big') for i in range(0, len(d) - 5, 6)]
 
 
 def make_be(lay, dis):
@@ -143,7 +148,7 @@ def make_be(lay, dis):
         body[s].append((cur, f[1], f[2], f[3] if len(f) > 3 else ''))
         if code:
             halves[cur] = halves.get(cur, 0) + 1
-    g = gold()
+    g = lay.words('gold')
     for s in body:                       # the listing omits the filler `мода 0` in
         lines = []                       # the right half after пвл and extracodes
         for t in body[s]:
@@ -247,7 +252,7 @@ def make_be(lay, dis):
 
 def data_section(lay, c, n):
     """Madlen DATA lines that set the non-zero words of common c."""
-    w = gold()[c - lay.BASE:lay.end(c) - lay.BASE]
+    w = lay.words('gold')[c - lay.BASE:lay.end(c) - lay.BASE]
     runs, i = [], 0
     while i < len(w):
         if not w[i]:
@@ -317,10 +322,7 @@ def make_asm(lay, name):
 
 
 def compare(lay, lst, verbose):
-    def W(f):
-        d = open(f, 'rb').read()
-        return [int.from_bytes(d[i:i + 6], 'big') for i in range(0, len(d) - 5, 6)]
-    g, s, base = W('gold.bin'), W('silver.bin'), lay.BASE
+    g, s, base = lay.words('gold'), lay.words('silver'), lay.BASE
     want = {lay.real(lay.NAME[a]): a for a in lay.STARTS}
     got = {}
     for l in open(lst, encoding='utf-8', errors='replace'):
@@ -349,18 +351,42 @@ def compare(lay, lst, verbose):
     return ok
 
 
+def check(lay):
+    g = open(lay.ov + '.gold.bin', 'rb').read()
+    try:
+        s = open(lay.ov + '.silver.bin', 'rb').read()
+    except OSError:
+        s = b''
+    diff = [i for i in range(max(len(g), len(s)))
+            if i >= len(g) or i >= len(s) or g[i] != s[i]]
+    with open(lay.ov + '.cmp.out', 'w') as f:
+        for i in diff:
+            f.write('%d %o %o\n' % (i + 1, g[i] if i < len(g) else 0, s[i] if i < len(s) else 0))
+    if not s:
+        print('%s: \033[1;31mBAD (build failed)\033[22;39m' % lay.ov)
+    elif diff and diff[-1] >= 48:
+        print('%s: \033[1;31mBAD (%d bytes differ)\033[22;39m' % (lay.ov, len(diff)))
+    else:
+        print('%s: \033[1;32mGOOD (%d bytes differ in the header)\033[22;39m' % (lay.ov, len(diff)))
+        return True
+    return False
+
+
 def main():
     a = sys.argv[1:]
-    if not a or not os.path.exists('layout.py'):
+    if len(a) < 2 or not os.path.exists(a[0] + '.layout.py'):
         sys.exit(__doc__)
-    lay = Layout()
+    lay = Layout(a[0])
+    a = a[1:]
     if a[0] == 'be':
-        make_be(lay, a[1] if len(a) > 1 else 'gold.dis')
+        make_be(lay, a[1] if len(a) > 1 else lay.ov + '.gold.dis')
     elif a[0] == 'asm' and len(a) > 1:
         make_asm(lay, a[1])
     elif a[0] == 'cmp':
         r = [x for x in a[1:] if x != '-v']
         sys.exit(0 if compare(lay, r[0] if r else 'build.lst', '-v' in a) else 1)
+    elif a[0] == 'check':
+        sys.exit(0 if check(lay) else 1)
     elif a[0] == 'map':
         for s in lay.STARTS:
             print(' %05o  %05o  %6o  %s  %s' % (s, lay.end(s) - 1, lay.end(s) - s,
