@@ -51,6 +51,8 @@ LAYOUT = [
 ]
 # BEMSH labels are at most 6 characters, so real names appear only in Madlen
 RENAME = {'FORTR': 'FORTR*', 'G34772': 'OCTTODEC', 'G35023': 'SDEC'}
+# original names, known from the debugging print in ENDPRO (ENDDUMP)
+RENAME.update({'D06636': 'IFLIST', 'D23440': 'DIMENLIS'})
 # Names given from what the routines do (callers, externals, literals);
 # PUTAWAY is the routine's own name, printed by its debugging trace.
 RENAME.update({

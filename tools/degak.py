@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
+# Remove the equivalences (`name:,EQU,expr`) that DTRAN generates: every use
+# of the name is replaced by its definition and constant sums are evaluated.
+#
+#     degak.py [-o] [file]      (standard input if no file)
+#
+# Octal constants (`123B`) become decimal so that they can be summed; with -o
+# they are left as they are. A comment that only repeats the operand after
+# the replacement (`,UTC,GAL/3.D33143+56` -> `,UTC,D33143+56`) is dropped.
 import sys
 import re
+
+KEEP_OCTAL = False
+
+# an operand followed by a comment that repeats it
+SAME_RE = re.compile(r'^(.*,)([^,.]+)\.\2$')
 
 # ----------------------------------------------------------------------
 # Regular expressions
@@ -47,7 +60,7 @@ def evaluate_arith(text: str) -> str:
 
     # Use re.sub with a lambda function for the replacement
     # The lambda function takes a match object and returns the decimal equivalent as a string
-    replaced_string = re.sub(
+    replaced_string = text if KEEP_OCTAL else re.sub(
         octal_pattern,
         lambda m: str(int(m.group()[:-1], 8)),
         text
@@ -89,6 +102,8 @@ def process_stream(stream):
         else:
             expanded = expand(line, macros)
             final = evaluate_arith(expanded)
+            if final != line:
+                final = SAME_RE.sub(r'\1\2', final)
         out_lines.append(final)
 
     return out_lines
@@ -96,6 +111,10 @@ def process_stream(stream):
 
 # ----------------------------------------------------------------------
 def main():
+    global KEEP_OCTAL
+    if len(sys.argv) > 1 and sys.argv[1] == '-o':
+        KEEP_OCTAL = True
+        del sys.argv[1]
     # If a filename is given as the first argument, read from it,
     # otherwise read from standard input.
     if len(sys.argv) > 1:

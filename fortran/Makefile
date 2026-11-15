@@ -6,12 +6,15 @@ OVSPLIT = ../tools/ovsplit.py
 
 FORTR := $(addsuffix .asm,$(shell $(OVSPLIT) fortr modules))
 CBDPR := $(addsuffix .asm,$(shell $(OVSPLIT) cbdpr modules))
+ENDPRO := $(addsuffix .asm,$(shell $(OVSPLIT) endpro modules))
+GLINK := $(addsuffix .asm,$(shell $(OVSPLIT) glink modules))
+SUBS = cbdpr endpro glink
 
 # name, load address, first code address of each overlay
 dis = disbesm6 -a$(2) -e$(3) -n$(1).sym
 
-all: fortr.silver.dis cbdpr.silver.dis
-	@$(OVSPLIT) fortr check; $(OVSPLIT) cbdpr check
+all: fortr.silver.dis $(addsuffix .silver.dis,$(SUBS))
+	@for o in fortr $(SUBS); do $(OVSPLIT) $$o check; done
 
 fortr.%.dis: fortr.%.bin fortr.sym
 	$(call dis,fortr,1760,1770) $< > $@
@@ -19,10 +22,17 @@ fortr.%.dis: fortr.%.bin fortr.sym
 cbdpr.%.dis: cbdpr.%.bin cbdpr.sym
 	$(call dis,cbdpr,35064,35074) $< > $@
 
+endpro.%.dis: endpro.%.bin endpro.sym
+	$(call dis,endpro,35064,35074) $< > $@
+
+glink.%.dis: glink.%.bin glink.sym
+	$(call dis,glink,35064,35074) $< > $@
+
 %.bin: %.ovl
 	../tools/ovl2bin < $< > $@
 
-# FORTR*: zone 0260, block 04; CBDPR: zone 0262, block 034
+# FORTR*: zone 0260, block 04; CBDPR: zone 0262, block 034;
+# ENDPRO: zone 0272, block 027; GLINK: zone 0273, block 026
 fortr.gold.ovl:
 	besmtool dump 2048 --start=0260 --length=4 --to-file=$@.
 	dd bs=192 skip=4 < $@. > $@
@@ -33,19 +43,29 @@ cbdpr.gold.ovl:
 	dd bs=192 skip=28 < $@. > $@
 	rm $@.
 
+endpro.gold.ovl:
+	besmtool dump 2048 --start=0272 --length=4 --to-file=$@.
+	dd bs=192 skip=23 < $@. > $@
+	rm $@.
+
+glink.gold.ovl:
+	besmtool dump 2048 --start=0273 --length=12 --to-file=$@.
+	dd bs=192 skip=22 < $@. > $@
+	rm $@.
+
 # The error messages of the compiler: zones 0202-0205 of the system volume
 errmsg.txt:
 	besmtool dump 2048 --start=0202 --length=4 --to-file=/dev/stdout | ../tools/ftnerr.py > $@
 
 # The overlays are rebuilt from the Madlen sources (*.asm) alone.
 # `make asm` regenerates them from the disassembly: OV.gold.dis -> *.be
-# (ovsplit.py be) -> BEMSH + DTRAN -> *.asm (ovsplit.py asm adds the common
+# (ovsplit.py be) -> BEMSH + DTRAN -> degak.py (no EQU) -> *.asm (ovsplit.py asm adds the common
 # blocks and their DATA sections). It needs a terminal for the dispak listing.
 # fortr goes first: cbdpr uses the entry names found in its .be files.
-asm: fortr.gold.dis fortr.gold.bin cbdpr.gold.dis cbdpr.gold.bin
-	for o in fortr cbdpr; do $(OVSPLIT) $$o be; \
+asm: fortr.gold.dis fortr.gold.bin $(foreach o,$(SUBS),$(o).gold.dis $(o).gold.bin)
+	for o in $${OV:-fortr $(SUBS)}; do $(OVSPLIT) $$o be; \
 	  for m in `$(OVSPLIT) $$o modules`; do \
-	    WORKVOL=$(WORKVOL) ../tools/debemsh.sh $$m.be `test -f $$m.dtr && echo $$m.dtr` | $(OVSPLIT) $$o asm $$m > $$m.asm; \
+	    WORKVOL=$(WORKVOL) ../tools/debemsh.sh $$m.be `test -f $$m.dtr && echo $$m.dtr` | ../tools/degak.py -o | $(OVSPLIT) $$o asm $$m > $$m.asm; \
 	  done; done
 
 workvol:
@@ -55,13 +75,13 @@ workvol:
 # FORTR*(CBDPR). loadmap keeps the load table (symbol table) that
 # *CALL OVERLAY prints; the catalog at the end of the listing tells where
 # each overlay landed on the scratch volume (zone and block, octal).
-build.lst: $(FORTR) $(CBDPR) | workvol
-	besmtool write $(WORKVOL) --start=0 --length=10 --from-file=/dev/zero
-	../tools/overlay.pl -o ' fortr*(cbdpr)' $(WORKVOL) 'fortr*' $(FORTR) $(CBDPR) > $@
+build.lst: $(FORTR) $(CBDPR) $(ENDPRO) $(GLINK) | workvol
+	besmtool write $(WORKVOL) --start=0 --length=24 --from-file=/dev/zero
+	../tools/overlay.pl -o ' fortr*(cbdpr,endpro,glink)' $(WORKVOL) 'fortr*' $(FORTR) $(CBDPR) $(ENDPRO) $(GLINK) > $@
 	sed -n '/END RECORD/,/CALL OCATALOG/p' $@ | grep -v '^ *$$' | sed '1d;$$d' > loadmap
 
 extract = set -- `awk '$$1 == "$(1)" && $$2 == 60 { print $$3, $$4 }' build.lst`; \
-	besmtool dump $(WORKVOL) --start=0$$1 --length=4 --to-file=$@. && \
+	besmtool dump $(WORKVOL) --start=0$$1 --length=12 --to-file=$@. && \
 	dd bs=192 skip=$$((0$$2)) < $@. > $@; rm -f $@.
 
 fortr.silver.ovl: build.lst
@@ -70,10 +90,15 @@ fortr.silver.ovl: build.lst
 cbdpr.silver.ovl: build.lst
 	$(call extract,CBDPR)
 
+endpro.silver.ovl: build.lst
+	$(call extract,ENDPRO)
+
+glink.silver.ovl: build.lst
+	$(call extract,GLINK)
+
 # after a build: which module or common block is misplaced or different
-modcmp: fortr.silver.bin cbdpr.silver.bin
-	-$(OVSPLIT) fortr cmp
-	-$(OVSPLIT) cbdpr cmp
+modcmp: fortr.silver.bin $(addsuffix .silver.bin,$(SUBS))
+	-for o in fortr $(SUBS); do $(OVSPLIT) $$o cmp; done
 
 .SECONDARY:
 

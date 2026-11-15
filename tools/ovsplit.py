@@ -46,6 +46,11 @@ OV.layout.py defines
     ERRMSG      file of error messages (`code text`, see ftnerr.py): the error
                 numbers found by the ERRCALLS and NUMBERS rules get a comment
                 with the text in the .asm (the low 12 bits are the code)
+    OWNER       {common address: module address}: the module whose `,DATA,`
+                section sets the block, when it is not the one before it
+    VECTORS     {module address: n} for a module that begins with a vector of
+                n one-word jumps: other modules refer to them as `MODULE+k`
+                instead of entry names (BEMSH/DTRAN lose entries beyond 19)
     BASES       {module address: register} for a module that keeps its own
                 address in a base register: operands indexed by it are
                 offsets from the module start and stay numbers; with
@@ -109,6 +114,8 @@ class Layout:
         self.errcalls = set(getattr(m, 'ERRCALLS', ())) | (self.root.errcalls if self.root else set())
         self.bases = {a: '%o' % r for a, r in getattr(m, 'BASES', {}).items()}
         self.numbers = set(getattr(m, 'NUMBERS', ()))
+        self.vectors = dict(getattr(m, 'VECTORS', {}))
+        self.owner = dict(getattr(m, 'OWNER', {}))
         self.errmsg = dict(self.root.errmsg) if self.root else {}
         if getattr(m, 'ERRMSG', None):
             for l in open(m.ERRMSG, encoding='utf-8'):
@@ -241,6 +248,9 @@ def make_be(lay, dis):
                 return lab
             if t not in labels and op not in NOIDX:
                 return "'%o'" % t        # an indexed offset that only looks like an address
+            if t - o < lay.vectors.get(o, 0):
+                ext[s][NAME[o]] = NAME[o]            # a word of the entry vector
+                return NAME[o] + '+%d' % (t - o)
             lab = labels.setdefault(t, 'E%05o' % t)   # a word inside another module
             entries[o].add((t, lab))
             ext[s][lab] = lab
@@ -409,9 +419,10 @@ def make_asm(lay, name):
         decl = [NAME[a] for a in STARTS[1:]] + [d for d in decl if d not in NAME.values()]
     # the commons that follow this module are its data
     own, i = [], STARTS.index(s) + 1
-    while i < len(STARTS) and KIND[STARTS[i]] == C:
+    while i < len(STARTS) and KIND[STARTS[i]] == C and STARTS[i] not in lay.owner:
         own.append(STARTS[i])
         i += 1
+    own += [c for c, o in sorted(lay.owner.items()) if o == s]
     for c in own:
         if NAME[c] not in decl:
             decl.append(NAME[c])
