@@ -331,7 +331,8 @@ def make_be(lay, dis):
         mod = False                      # the previous instruction is мода/мод X:
         for i, (a, lab, op, arg) in enumerate(body[s]):   # this address field is then an offset
             nxt = [t[2:] for t in body[s][i + 1:i + 3]]      # the next two instructions
-            if (op == 'уиа' and (errnum(i) or a in lay.numbers)) or \
+            if (op == 'уиа' and ((errnum(i) and not (arg.endswith('(М15)') and nxt[:1] and nxt[0][0] == 'пб'))  # уиа X(М15); пб ERR: a return address
+                                 or a in lay.numbers)) or \
                     (op != 'уиа' and arg.endswith('(М%s)' % lay.bases.get(s))):
                 new = SYM.sub(lambda m: "'%o'" % (int(m.group(2), 8) + int(m.group(3) or 0)), arg)
                 mod = False              # an error number or an offset from the base

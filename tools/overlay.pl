@@ -10,11 +10,14 @@ $standard = 0;
 while (1) {
 if ($#ARGV >= 0 && $ARGV[0] eq '-v') { $verbose = 1; shift @ARGV; }
 elsif ($#ARGV >= 0 && $ARGV[0] eq '-s') { $standard = 1; shift @ARGV; }
+elsif ($#ARGV > 0 && $ARGV[0] eq '-p') { $perso = $ARGV[1]; shift @ARGV; shift @ARGV; }
 elsif ($#ARGV > 0 && $ARGV[0] eq '-o') { push @over, $ARGV[1]; shift @ARGV; shift @ARGV; }
 else { last; }
 }
 $vol = 0;
-die "Usage: overlay.pl [-v] [-o overlay-spec]... volume# rootmod files\n" if $#ARGV < 2;
+# -p vol: modules are also taken from the personal library on volume vol
+# (made by tolib.pl), for a link too large for the temporary library
+die "Usage: overlay.pl [-v] [-p libvol] [-o overlay-spec]... volume# rootmod files\n" if $#ARGV < 2;
 
 $vol = $ARGV[0];
 shift @ARGV;
@@ -23,13 +26,15 @@ $b6 = "temp.b6";
 $root = $ARGV[0];
 shift @ARGV;
 
+$lun67 = $perso ? "67($perso)" : '';
+$persocard = $perso ? "*PERSO:670000\n" : '';
 open(B, ">$b6") || die "Cannot open $b6 for writing\n";
 print B qq/шифр 419999ЗС5^
-ЛЕН 60($vol-WR)^
+ЛЕН 60($vol-WR)$lun67^
 ЕЕВ1А3
 *NAME
 *call yesmemory
-*MADLEN
+$persocard*MADLEN
 /;
 print B "*NO LIST\n" unless $verbose;
 
