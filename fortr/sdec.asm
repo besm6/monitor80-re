@@ -1,0 +1,4 @@
+ SDEC:,NAME,DTRAN  /01.06.84/
+ SDEC*:,SUBP,
+ ,UJ,SDEC*
+ ,END,
