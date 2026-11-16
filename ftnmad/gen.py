@@ -525,8 +525,6 @@ class Gen:
         self.op = 0o1600000000000024
         self.emitq(*self.prep(self.op))
         self.emit(0o20000010, text_word(name))
-        if name == 'R*ST*I':
-            self.update()
         return True
 
     def power(self):

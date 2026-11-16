@@ -128,7 +128,9 @@ def signed(off):
 class Unit:
     """What the renderer needs besides the two lists (the original GLINK
     takes it from the tables of the compiler, which stay in memory)."""
-    def __init__(self, main=False, update=(), implicit=()):
+    def __init__(self, main=False, update=(), implicit=(), temps=0, commons=0):
+        self.temps = temps          # cells for temporaries (*ERRnn) ...
+        self.commons = commons      # ... and for common subexpressions (*CERnn)
         self.main = main            # a main program
         self.update = list(update)  # variables with index update routines *Unnnn
         self.implicit = list(implicit)  # undeclared variables that get memory
@@ -143,7 +145,7 @@ def code_words(items):
         if it.op in (LABEL, STMT, SUBP, SECT):
             continue
         h += 1
-        if it.op in (0o30, 0o31, CALL):
+        if it.op in (0o31, CALL):
             h += h & 1
     return (h + 1) // 2
 
@@ -195,7 +197,7 @@ def render(decl, out, unit):
             bss.append(it)
     lines = head + [line(s, op='SUBP') for s in subp]
 
-    nerr = 0
+    nerr, ncer = unit.temps, unit.commons
     body = []
     for it in code:
         if it.spec:
@@ -206,6 +208,9 @@ def render(decl, out, unit):
         if it.name == 'ERASER':
             nerr = max(nerr, it.off + 1)
             it = Item(it.op, '*ERR%02d' % it.off, reg=it.reg, align=it.align)
+        elif it.name == 'CERASE':   # a common subexpression
+            ncer = max(ncer, it.off + 1)
+            it = Item(it.op, '*CER%02d' % it.off, reg=it.reg, align=it.align)
         body.append(it)
 
     ndata = sum(1 for it in data if it.op == OCT)
@@ -257,6 +262,8 @@ def render(decl, out, unit):
             lines.append(more)
     for i in range(nerr):
         lines.append(line('*ERR%02d' % i, op='BSS', operand='1'))
+    for i in range(ncer):
+        lines.append(line('*CER%02d' % i, op='BSS', operand='1'))
     for v in unit.implicit:
         lines.append(line(v, op='BSS', operand='1'))
     for it in bss:
