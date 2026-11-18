@@ -206,6 +206,9 @@ class Front:
         self.params = []
         self.entered = False
         self.functions = {}     # external functions: name -> token
+        self.io_funcs = {}      # FT*... routines used: name -> token
+        self.formats = {}       # FORMAT labels: n -> cell of /n
+        self.pending_formats = []   # FORMATs before the first statement
         self.sfuncs = set()     # statement functions (no SUBP) ...
         self.sf_bound = 0       # ... at the start of self.functions (D33212)
         self.sf_args = {}       # dummy -> token while compiling one
@@ -606,20 +609,168 @@ class Front:
 
     def close_loops(self, label):
         """the ends of the DO loops with this terminal statement"""
-        put = self.put
         while self.loops and self.loops[-1][0] == label:
-            _, var, step, limit, wcell, tcell = self.loops.pop()
-            self.m[gen.D33143 + 222] = var >> 15 & 7
-            put(var, 0o110)
-            put(0, 0o300000137)
-            self.m[gen.D34621 + 73] = gen.NTR3     # the mode is known now
-            put(step, 0o104)
-            put(var, 0o100)
-            if tcell:
-                put(tcell, 0o5400000074)
-            put(limit, 0o106)
-            put(wcell, 0o2600000074)
-            self.jumped = False
+            self.close_loop(*self.loops.pop()[1:])
+
+    def close_loop(self, var, step, limit, wcell, tcell):
+        """the end of a DO loop: var += step, the test, the jump back"""
+        put = self.put
+        self.m[gen.D33143 + 222] = var >> 15 & 7
+        put(var, 0o110)
+        put(0, 0o300000137)
+        self.m[gen.D34621 + 73] = gen.NTR3     # the mode is known now
+        put(step, 0o104)
+        put(var, 0o100)
+        if tcell:
+            put(tcell, 0o5400000074)
+        put(limit, 0o106)
+        put(wcell, 0o2600000074)
+        self.jumped = False
+
+    # ---- input and output -----------------------------------------------
+    def library(self, name):
+        """a routine of the input/output library: its SUBP item comes with
+        its first use"""
+        if name not in self.io_funcs:
+            self.io_funcs[name] = self.name_cell(name) << 33 | 0o13
+            self.put(self.io_funcs[name] & ~0o37 | 0o10, 0o45)
+        return self.io_funcs[name]
+
+    def format_label(self, n):
+        n = str(int(n))
+        if n not in self.formats:
+            self.formats[n] = self.name_cell('/' + n)
+        return self.formats[n] << 33 | 0o10
+
+    def format(self, label):
+        """FORMAT (...): its text from ( to the last ) in ISO code, blanks
+        and all, in words of 6 characters: SECT *, LABEL /n, OCT ..., SECT *
+        (before the first executable statement they wait for the DATA)"""
+        if not label:
+            raise Error('FORMAT without a label')
+        raw = self.raw
+        text = raw[raw.index('('):raw.rindex(')') + 1]
+        text += ' ' * (-len(text) % 6)
+        words = [int.from_bytes(text[i:i + 6].encode('latin-1'), 'big')
+                 for i in range(0, len(text), 6)]
+        item = (self.format_label(label), words)
+        if self.decl_done:
+            self.format_out(*item)
+        else:
+            self.pending_formats.append(item)
+
+    def format_out(self, cell, words):
+        star = self.cell('*', 0o10)
+        self.put(star, 0o52)
+        self.put(cell, 0o54)
+        if not self.data_cell:
+            self.data_cell = self.name_cell('')
+        for w in words:
+            self.m[self.data_cell] = w
+            self.put(self.data_cell << 24 | 1, 0o53)
+        self.put(star, 0o52)
+
+    def implied_ivar(self, var, step):
+        """the variable of an implied loop gets into the list of index
+        variables when the loop gets its number: a new one at the end; with
+        step 1 it changes places with the first one after the front (as for
+        DO, but a new one is found at its place)"""
+        v = self.ivars
+        p = var >> 33
+        if p not in v:
+            v.append(p)
+        i = v.index(p)
+        if step in (None, '1') and i >= self.front:
+            v[i], v[self.front] = v[self.front], v[i]
+            self.front += 1
+
+    def io_tree(self, text):
+        """an input/output list -> [token of an item | name of a whole array
+        | (items, var, params, step, n)], made as SCANSTMT and CONTROL do it
+        before the code: the tokens (and subscript forms) in the order of
+        the text, the implied loops numbered at their ends (their variables
+        then go to the list of index variables)"""
+        out = []
+        for part in split_top(text):
+            if part.startswith('(') and part.endswith(')'):
+                parts = split_top(part[1:-1])
+                k = next((i for i, x in enumerate(parts)
+                          if re.fullmatch(r'[A-Z][A-Z0-9]*=[A-Z0-9]+', x)), None)
+                if k is None or not 2 <= len(parts) - k <= 3:
+                    raise Error('bad implied DO: ' + part)
+                items = self.io_tree(','.join(parts[:k]))
+                var, first = parts[k].split('=')
+                step = parts[k + 2] if len(parts) - k == 3 else None
+                v = self.variable(var)
+                if v & 0o77777777777 != I << 15 | 0o10 or var in self.arrays:
+                    raise Error('the index of an implied DO: ' + var)     # 21010
+                params = [self.tokens(p)[0] for p in (first, parts[k + 1], step or '1')]
+                self.ndo += 1
+                self.implied_ivar(v, step)
+                out.append((items, v, params, step, self.ndo))
+            elif part in self.arrays:
+                out.append(part)
+            else:
+                toks = self.tokens(part)
+                if len(toks) != 1 or toks[0] & 0o37 not in (0o10, 0o30) and \
+                        toks[0] & 0o37 < 0o10:
+                    raise Error('an expression in an input/output list')    # 21010
+                t = toks[0]
+                if t & 0o77437 == 0o30:
+                    t ^= 0o20       # constant subscripts: a variable with an offset
+                out.append(t)
+        return out
+
+    def io_items(self, tree, f):
+        """the calls of the routine f for the items of a list"""
+        for node in tree:
+            if isinstance(node, tuple):
+                items, v, params, step, n = node
+                loop = self.open_loop(n, v, params, step, True)
+                self.io_items(items, f)
+                self.close_loop(*loop)
+            elif isinstance(node, str):
+                # a whole array: loops by IMPL*k, k = 1 the innermost
+                arr = self.arrays[node]
+                k = len(arr.dims)
+                base = self.ndo
+                self.ndo += k
+                ivs = [self.variable('IMPL*%d' % (j + 1)) for j in range(k)]
+                for t in ivs:
+                    self.implied_ivar(t, None)
+                loops = []
+                for j in range(k - 1, -1, -1):
+                    d = arr.dims[j]
+                    lim = self.constant(str(d)) if isinstance(d, int) else self.variable(d)
+                    one = self.constant('1')
+                    loops.append(self.open_loop(base + j + 1, ivs[j], [one, lim, one], None,
+                                                True))
+                self.io_item(self.subscripted(arr, [[t] for t in ivs]), f)
+                for loop in reversed(loops):
+                    self.close_loop(*loop)
+            else:
+                self.io_item(node, f)
+
+    def io_item(self, t, f, var=True):
+        """one item: ARG, CALL f (its SUBP before the first call), and 073
+        for an integer variable (even a parameter)"""
+        self.put(t, 0o11)
+        if f == 'FT*002':           # two-word values: their own routines
+            f = {D: 'FD*002', C: 'FC*002'}.get(t >> 15 & 7, f)
+        self.put(self.library(f), 0o10)
+        if var and t & 0o37 == 0o10 and not t & 0o777427:
+            self.put(t, 0o73)       # (an element with constant subscripts too)
+
+    def print_(self, label, text):
+        """PRINT n [, list]: FT*571 (/n), FT*002 for every item, FT*003"""
+        mt = re.match(r'PRINT(\d+)(?:,(.*))?$', text)
+        tree = self.io_tree(mt.group(2)) if mt.group(2) else []
+        self.begin(label)
+        self.m[gen.D33143 + 222] = 0    # CONTROL: the calls are of type I
+        self.io_item(self.format_label(mt.group(1)), 'FT*571', False)
+        if tree:
+            self.io_items(tree, 'FT*002')
+        self.put(self.library('FT*003'), 0o10)
 
     def do(self, label, text):
         mt = re.match(r'DO(\d+)([A-Z][A-Z0-9]*)=([A-Z0-9]+),([A-Z0-9]+)(?:,([A-Z0-9]+))?$',
@@ -631,29 +782,36 @@ class Front:
         var = self.variable(var)
         self.begin(label)
         self.ndo += 1
-        wcell = self.name_cell('*W%04d' % self.ndo)
+        self.loops.append((str(int(end)),) + self.open_loop(self.ndo, var, params, step))
+        return True
+
+    def open_loop(self, n, var, params, step, implied=False):
+        """the start of a DO loop (or of an implied one) number n: var =
+        params[0]; the jump to the test *Tn if the bounds are not both
+        constants; the label *Wn.  Returns what close_loop needs"""
+        wcell = self.name_cell('*W%04d' % n)
         tcell = 0
         self.put(params[0], 0o110)
         self.put(var, 0o100)
         # a DO variable with step 1 goes to the front of the list of index
         # variables; but a new one is found "at place 0" (as in the original:
         # it stays at the end, and the front grows only while it is empty)
-        v = self.ivars
-        if var >> 33 in v:
-            i = v.index(var >> 33)
-        else:
-            v.append(var >> 33)
-            i = 0
-        if step in (None, '1') and i >= self.front:
-            v[i], v[self.front] = v[self.front], v[i]
-            self.front += 1
+        if not implied:
+            v = self.ivars
+            if var >> 33 in v:
+                i = v.index(var >> 33)
+            else:
+                v.append(var >> 33)
+                i = 0
+            if step in (None, '1') and i >= self.front:
+                v[i], v[self.front] = v[self.front], v[i]
+                self.front += 1
         if params[0] & 0o37 != 1 or params[1] & 0o37 != 1:
             # the loop starts with the test
-            tcell = self.name_cell('*T%04d' % self.ndo)
+            tcell = self.name_cell('*T%04d' % n)
             self.put(tcell << 33 | 0o10, 0o30)
         self.put(wcell, 0o5400000074)
-        self.loops.append((str(int(end)), var, params[2], params[1], wcell, tcell))
-        return True
+        return var, params[2], params[1], wcell, tcell
 
     def unit_statement(self, label, text):
         m = self.m
@@ -705,6 +863,9 @@ class Front:
                 raise Error('DATA after an executable statement')      # 21014
             self.datas.append(unblank(self.raw)[4:])
             return
+        if text.startswith('FORMAT(') and text.endswith(')'):
+            self.format(label)
+            return
         self.declarations()
         if text == 'END' and self.kind == 'BLOCK DATA':
             return True
@@ -717,6 +878,9 @@ class Front:
                 self.leave()
             return True
         self.jumped = False
+        if re.match(r'PRINT\d+(,|$)', text):
+            self.print_(label, text)
+            return
         mt = re.match(r'([A-Z][A-Z0-9]*)\(([A-Z][A-Z0-9]*(?:,[A-Z][A-Z0-9]*)*)\)=(.*)$', text)
         if mt and not self.entered and mt.group(1) not in self.arrays:
             self.statement_function(label, mt.group(1), mt.group(2).split(','), mt.group(3))
@@ -814,6 +978,8 @@ class Front:
         self.equs()
         for text in self.datas:
             self.data(text)
+        for item in self.pending_formats:
+            self.format_out(*item)
 
     def blist(self, word):
         """a new entry of the list of blocks and their variables"""

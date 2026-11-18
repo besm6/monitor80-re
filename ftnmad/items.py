@@ -263,7 +263,8 @@ def render(decl, out, unit):
             # kept when the variable has an update routine (or the unit has
             # *RELCN); an item without a name goes with the one before it
             if it.name:
-                keep = it.name in unit.update
+                # (GLINK keeps WTC of a parameter and its XTA anyway)
+                keep = it.name in unit.update or it.op == 0o23
             if not keep:
                 continue
             if it.op == 0o31 and it.name != '*RELCN':

@@ -21,7 +21,7 @@ def operand(w1, mem):
     if w1 == 0:
         return ''
     kind = w1 & 0o37
-    t = 'IRDCLL'[w1 >> 15 & 7]
+    t = 'IRDCLL??'[w1 >> 15 & 7]
     if kind == 1:
         p = w1 >> 24 & 0o77777
         return '=%o:%s' % (mem[p], t)
