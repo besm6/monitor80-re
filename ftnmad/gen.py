@@ -625,6 +625,12 @@ class Gen:
                 return True
             name = m[w1 & 0o77777]
             self.op = 0o13
+            if w2 & B48 and (item & 0o77777) == 0o31:
+                # after a CALL CONTROL forgets the index registers (its
+                # *0767B, called after the call of *RELCN is put)
+                for i in range(6):
+                    m[D33143 + 91 + i] = 0
+                    m[D33143 + 85 + i] = 0
             if (item & 0o77777) == 0o54:
                 last = self.begin_label()
                 return self.set_label(name, last, m[w1 >> 33])

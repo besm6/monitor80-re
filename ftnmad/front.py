@@ -1,8 +1,8 @@
 """The front end: statements of one program unit -> calls of the generator.
 
 Takes the place of SCANSTMT, CBDPR, CONTROL and ENDPRO of the original.
-EQUIVALENCE and DATA are kept until the first executable statement and
-done then, as CBPROC of CBDPR does (CBPRCZ, CBBSS, CBEQU).
+COMMON, EQUIVALENCE and DATA are kept until the first executable statement
+and done then, as CBPROC of CBDPR does (CBPRCZ, CBCE, CBBSS, CBEQU).
 The tables live in the same memory array as the generator's (gen.py):
 a name is a word of text, an operand is a word with a pointer to it.
 """
@@ -122,6 +122,10 @@ class Sym:
         self.needmem = False    # an array or in EQUIVALENCE: BSS by CBBSS
         self.child = False      # equivalenced to another one: no BSS
         self.datad = False      # given a value by DATA
+        self.common = None      # the block of COMMON it is in
+        self.cptr = 0           # its entry in the list of blocks
+        self.ext = 0            # how far its equivalence class goes past
+                                # its end (bits 25-39 of word 764B)
 
 
 LOGOP = r'(?:EQ|NE|GT|LT|GE|LE|AND|OR|NOT)'
@@ -176,6 +180,9 @@ class Front:
         self.cforms = []        # the forms with cells *Innnn
         self.iterms = []        # their terms, sorted
         self.temp_used = False
+        self.commons = []       # the texts of COMMON statements
+        self.blocks = []        # [name, entry, [Sym]] (D06466+4, DIMENLIS+2100)
+        self.nblist = 0         # entries in the list of blocks and their items
         self.equivs = []        # the texts of EQUIVALENCE statements
         self.datas = []         # the texts of DATA statements
         self.decl_done = False
@@ -572,6 +579,11 @@ class Front:
             for n in split_top(mt.group(2)):
                 self.dimension(n, typ)
             return
+        if text.startswith('COMMON') and '=' not in text:
+            if self.decl_done:
+                raise Error('COMMON after an executable statement')    # 21014
+            self.commons.append(text[6:])
+            return
         if text.startswith('EQUIVALENCE(') and '=' not in text:
             if self.decl_done:
                 raise Error('EQUIVALENCE after an executable statement')   # 21014
@@ -667,12 +679,94 @@ class Front:
         if self.decl_done:
             return
         self.decl_done = True
+        for text in self.commons:
+            self.common(text)
         for text in self.equivs:
             self.equivalence(text)
+        self.blocks_out()
         self.bss()
         self.equs()
         for text in self.datas:
             self.data(text)
+
+    def blist(self, word):
+        """a new entry of the list of blocks and their variables"""
+        p = gen.DIMENLIS + 2100 + self.nblist
+        if self.nblist >= 500:
+            raise Error('too many COMMON blocks and variables')     # 42146
+        self.nblist += 1
+        self.m[p] = word
+        return p
+
+    def common(self, text):
+        """[/name/ | //] a, b(dims), ... [/name/ ...] (CBPRCZ *0050B)"""
+        pos = 0
+        name = ''
+        while True:
+            if text.startswith('//', pos):
+                name = ''
+                pos += 2
+            elif text.startswith('/', pos):
+                mt = re.compile(r'/([A-Z][A-Z0-9]*)/').match(text, pos)
+                if not mt:
+                    raise Error('bad / in COMMON')              # 22015
+                name = mt.group(1)
+                pos = mt.end()
+            if any(b[0] == name for b in self.blocks):
+                raise Error('a block named twice')              # 22040
+            block = [name, self.blist(text_word(name)), []]
+            self.blocks.append(block)
+            while True:
+                mt = re.compile(r'([A-Z][A-Z0-9]*)(\([^()]*\))?').match(text, pos)
+                if not mt:
+                    raise Error('bad / in COMMON')              # 22015
+                pos = mt.end()
+                self.common_item(block, mt.group(1), mt.group(2))
+                if pos == len(text):
+                    return
+                if text[pos] == '/':
+                    break
+                if text[pos] != ',':
+                    raise Error('no separator in COMMON')       # 22016
+                pos += 1
+
+    def common_item(self, block, name, dims):
+        if any(name in (s.name for s in b[2]) for b in self.blocks):
+            raise Error('a variable twice in COMMON')           # 22045
+        s = self.syms.get(name)
+        if s is None:
+            s = self.declare(name)
+            s.declared = False
+        if s.param:
+            raise Error('a parameter in COMMON')                # 22042
+        if dims:
+            if name in self.arrays:
+                raise Error('dimensions given twice')           # 22021
+            self.dimension(name + dims)
+        s.common = block
+        s.bss = True
+        self.m[ATTR + s.ptr - gen.DIMENLIS] |= 1 << 42  # reached by UTC
+        s.cptr = self.blist(text_word(name))
+        block[2].append(s)
+
+    def blocks_out(self):
+        """BLOCK name, CONT variable (size) ... (CBCE); a block takes also
+        what the equivalence classes of its variables add at its end"""
+        for name, ptr, items in self.blocks:
+            total = rest = 0
+            for s in items:
+                n = self.size(s)
+                total += n
+                rest = max(rest - n, 0, s.ext)
+            total += rest
+            self.put(ptr << 33 | (total & 0o77777) << 18 | 0o10, 0o50)
+            for s in items:
+                e = self.eq.get(s.name)
+                if e:
+                    if e.parent:
+                        raise Error('error in COMMON/EQUIVALENCE')     # 22031
+                    e.done = True
+                self.put(s.cptr << 33 | self.size(s) << 18 | 0o10, 0o51)
 
     def equivalence(self, text):
         """(a, b, ...), ... (CBPRCZ *0230B)"""
@@ -719,12 +813,35 @@ class Front:
     def eq_merge(self, a, b):
         """two equivalenced places: the class of b goes into that of a, or
         the other way when b is further from the start of its class (or as
-        far, and its class is larger); returns the place in the joint class"""
+        far, and its class is larger); returns the place in the joint class.
+        A class with a variable of COMMON always stays the root."""
+        ca, cb = a[0].sym.common, b[0].sym.common
+        if ca and cb:
+            raise Error('equivalence covers COMMON blocks')     # 22041
         if a[0] is b[0]:
             if a[1] != b[1]:
                 raise Error('a variable equivalenced to itself + n')    # 22047
             # the original makes the root its own child and loops in CBEQU
             raise NotImplementedError('an equivalence repeated')
+        if ca or cb:
+            if not ca:
+                a, b = b, a
+            d = a[1] - b[1]
+            if d < 0:
+                # b would begin before its block (*0605B)
+                items = a[0].sym.common[2]
+                pos = sum(self.size(s) for s in items[:items.index(a[0].sym)])
+                if pos + d < 0:
+                    raise Error('equivalence reorders COMMON')  # 22014
+            t = (b[2] - b[1]) - (a[2] - a[1])
+            if t >= 0:
+                a[2] = a[0].size = a[2] + t
+                a[0].sym.ext |= t   # sic: the original ORs
+            r = b[0]
+            r.parent, r.off = a[0], d
+            r.sym.child = True
+            self.m[ATTR + r.sym.ptr - gen.DIMENLIS] |= 1 << 42
+            return a
         if a[1] == b[1]:
             if a[2] < b[2]:
                 a, b = b, a
@@ -746,7 +863,7 @@ class Front:
         for s in sorted(self.syms.values(), key=lambda s: s.ptr):
             if not gen.DIMENLIS <= s.ptr < gen.DIMENLIS + self.ndecl:
                 continue
-            if s.child or not s.needmem:
+            if s.child or s.common or not s.needmem:
                 continue
             e = self.eq.get(s.name)
             size = e.size if e else self.size(s)
@@ -860,7 +977,7 @@ class Front:
                     mult *= dims[i]
             count = 1
             self.put(s.ptr << 33 | (off & 0o77777) << 18 | 0o10, 0o52)
-        elif s is not None and (s.needmem or s.datad):
+        elif s is not None and (s.needmem or s.datad or s.common):
             count = self.size(s)
             self.put(s.ptr << 33 | 0o10, 0o52)
         else:
@@ -890,6 +1007,7 @@ class Front:
         self.put(star, 0o52)
 
     def is_param(self, ptr):
+        """a formal parameter or a variable of COMMON: a call may change it"""
         i = ptr - gen.DIMENLIS
         return 0 <= i < self.ndecl and self.m[ATTR + i] != 0
 

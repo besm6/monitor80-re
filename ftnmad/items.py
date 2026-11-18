@@ -191,21 +191,41 @@ def render(decl, out, unit):
     dcl = []
     split(decl, dcl)
     split(out, code)
-    for it in dcl:
+    left = 0        # words of the block not covered by its variables
+    far = set()     # names in COMMON: reached by UTC
+    equ = {}        # name -> the name it is equal to
+    for it in dcl + [Item(0)]:
+        if left and it.op != 0o51:
+            # what equivalences add at the end of the block
+            head.append(line(op='CONT', operand='%-6s(%d)' % ('', left)))
+            left = 0
         if it.op == NAME:
             name = it.name
             head.append(line(it.name, op='NAME'))
         elif it.op == 0o50:
             head.append(line('*%s*' % it.name, 'LC', 'BLOCK'))
+            left = it.off
         elif it.op == 0o51:
             head.append(line(op='CONT', operand='%-6s(%d)' % (it.name, it.off)))
+            left -= it.off
+            far.add(it.name)
         elif it.op == 0o55:
             off = signed(it.off)
             head.append(line(it.name, op='EQU',
-                             operand=it.lit2 + ('+%d' % off if off else '')))
+                             operand=it.lit2 + ('%+d' % off if off else '')))
+            equ[it.name] = it.lit2
         elif it.op == BSS:
             bss.append(it)
     lines = head + [line(s, op='SUBP') for s in subp]
+
+    # a name equal to one in COMMON is in COMMON too, but GLINK takes a
+    # name that gets values by DATA for one of its own
+    while True:
+        more = {n for n, t in equ.items() if t in far} - far
+        if not more:
+            break
+        far |= more
+    far -= {a[0] for a in arrays}
 
     nerr, ncer = unit.temps, unit.commons
     body = []
@@ -226,6 +246,10 @@ def render(decl, out, unit):
         elif it.name == 'CERASE':   # a common subexpression
             ncer = max(ncer, it.off + 1)
             it = Item(it.op, '*CER%02d' % it.off, reg=it.reg, align=it.align)
+        elif it.name in far and it.op >= 0o100 and it.lit is None:
+            # a short instruction cannot reach COMMON: UTC name first
+            body.append(Item(0o22, it.name, it.off, it.reg, align=it.align))
+            it = Item(it.op)
         body.append(it)
 
     ndata = sum(1 for it in data if it.op == OCT)
