@@ -177,8 +177,11 @@ def render(decl, out, unit):
                         groups.append([[], 1])
                     groups[-1][0].append(it)
                 elif it.op == 0o61:
-                    if len(groups[-1][0]) > 1:
-                        groups.append([[groups[-1][0].pop()], 1])
+                    # the last value repeats: two words when marked so
+                    k = 2 if it.var else 1
+                    if len(groups[-1][0]) > k:
+                        groups.append([groups[-1][0][-k:], 1])
+                        del groups[-2][0][-k:]
                     groups[-1][1] = it.off
             elif it.op == SUBP:
                 if it.name not in subp:

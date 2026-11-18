@@ -40,7 +40,18 @@ for _n, _op in enumerate(RELOPS):
 
 
 # functions with any number of arguments (the start of the table in OPERAND)
-VARARGS = ('AMAX0', 'AMAX1', 'AMIN0', 'AMIN1', 'MAX0', 'MAX1', 'MIN0', 'MIN1')
+# the standard functions OPERAND knows (its table *1606B, *1646B): type
+# and 0200 for any number of arguments
+STDFUNC = {}
+for _names, _attr in (('AMAX0 AMAX1 AMIN0 AMIN1', 1 << 15 | 0o200),
+                      ('MAX0 MAX1 MIN0 MIN1 LOADGO', 0o200),
+                      ('DMOD DEXP DLOG DLOG10 DATAN DATAN2 DSIN DCOS DSQRT DABS DSIGN '
+                       'DBLE DINT', 2 << 15),
+                      ('DMAX1 DMIN1', 2 << 15 | 0o200),
+                      ('CABS', 1 << 15),
+                      ('CEXP CLOG CSIN CCOS CSQRT CMPLX CONJG', 3 << 15)):
+    for _n in _names.split():
+        STDFUNC[_n] = _attr
 
 
 class Error(Exception):
@@ -87,6 +98,14 @@ def signed_real(x):
     return (e + 64) << 41 | int(x * (1 << 40)) & ((1 << 41) - 1)
 
 
+def negate_real(w):
+    """minus a non-negative normalized real number"""
+    if w == 0:
+        return 0
+    x = Fraction(w & ((1 << 41) - 1), 1 << 40) * Fraction(2) ** ((w >> 41) - 64)
+    return signed_real(-x)
+
+
 class Eq:
     """an entry of the table of equivalences (D06466+69 in CBPRCZ): a
     variable; a root has the size of its class, another one the entry it
@@ -112,6 +131,29 @@ def real(x):
     return (e + 64) << 41 | mant
 
 
+def double(text, neg=False):
+    """a constant with exponent D -> the two words of a double precision
+    number: 80 bits of mantissa, 40 in each word (the low word has no
+    exponent); negative: the mantissa in [-1, -1/2), two's complement.
+    FIXME: the original computes it by the library routines of double
+    precision, which lose some of the last bits"""
+    mant, _, exp = text.partition('D')
+    x = Fraction(mant) * Fraction(10) ** int(exp or 0)
+    if x == 0:
+        return 0, 0
+    if neg:
+        x = -x
+    e = 0
+    while abs(x) >= 1 and not x == -1:
+        x /= 2
+        e += 1
+    while 0 < x < Fraction(1, 2) or Fraction(-1, 2) <= x < 0:
+        x *= 2
+        e -= 1
+    m = int(x * (1 << 80)) & ((1 << 81) - 1)
+    return (e + 64) << 41 | m >> 40, m & ((1 << 40) - 1)
+
+
 class Sym:
     def __init__(self, name, ptr, typ):
         self.name, self.ptr, self.type = name, ptr, typ
@@ -130,7 +172,8 @@ class Sym:
 
 
 LOGOP = r'(?:EQ|NE|GT|LT|GE|LE|AND|OR|NOT)'
-TOKEN = re.compile(r'(\d+(?:\.(?!(?:' + LOGOP + r'|TRUE|FALSE)\.)\d*)?(?:E[+-]?\d+)?|\.\d+(?:E[+-]?\d+)?)'
+TOKEN = re.compile(r'(\d+(?:\.(?!(?:' + LOGOP + r'|TRUE|FALSE)\.)\d*)?(?:[ED][+-]?\d+)?'
+                   r'|\.\d+(?:[ED][+-]?\d+)?)'
                    r'|([A-Z][A-Z0-9]*)|(\*\*|[-+*/=(),]|\.' + LOGOP + r'\.)'
                    r'|\.(TRUE|FALSE)\.')
 
@@ -247,10 +290,11 @@ class Front:
         t = self.functions.get(name)
         if t is None:
             s = self.syms.get(name)
-            typ = s.type if s else self.implied(name)
-            t = self.name_cell(name) << 33 | typ << 15 | 0o13
-            if name in VARARGS:
-                t |= 0o200
+            if name in STDFUNC and not (s and s.declared):
+                t = self.name_cell(name) << 33 | STDFUNC[name] | 0o13
+            else:
+                typ = s.type if s else self.implied(name)
+                t = self.name_cell(name) << 33 | typ << 15 | 0o13
             self.functions[name] = t
         return t
 
@@ -258,6 +302,8 @@ class Front:
         """a constant: one entry of the table for every value"""
         if re.fullmatch(r'\d+', text):
             return self.const_word(integer(int(text)), I)
+        if 'D' in text:
+            return self.const_word(double(text), D)
         mant, _, exp = text.partition('E')
         x = Fraction(mant) * Fraction(10) ** int(exp or 0)
         return self.const_word(real(x), R)
@@ -266,8 +312,12 @@ class Front:
         p = self.consts.get((value, typ))
         if p is None:
             p = self.consts[value, typ] = self.pool
-            self.pool += 1
-            self.m[p] = value
+            if typ in (D, C):       # two words
+                self.m[p], self.m[p + 1] = value
+                self.pool += 2
+            else:
+                self.m[p] = value
+                self.pool += 1
         return p << 24 | typ << 15 | 1
 
     def label(self, n):
@@ -297,7 +347,9 @@ class Front:
         return self.name_cell(text) << 33 | 0o10
 
     # ---- statements ---------------------------------------------------
-    def tokens(self, text):
+    def tokens(self, text, prev=None):
+        """the tokens of a text; prev: the token before it (a function for
+        the arguments of CALL)"""
         out = []
         pos = 0
         while pos < len(text):
@@ -324,6 +376,36 @@ class Front:
                 # a logical constant: a word 1 or 0; its token has the
                 # type bits 5 (as SCANSTMT makes it)
                 out.append(self.const_word(int(mt.group(4) == 'TRUE'), LCONST))
+        return self.complexes(out, prev)
+
+    def complexes(self, toks, prev=None):
+        """OPERAND (*0036B): ( [sign] c, [sign] c ) with real constants c,
+        the parenthesis not after a function, is a complex constant"""
+        def real_const(t):
+            return t & 0o77777777 == R << 15 | 1
+        out = []
+        i = 0
+        while i < len(toks):
+            t = toks[i]
+            before = out[-1] if out else prev
+            if t == LPAR and not (before is not None and before & 0o77777 in (0o13, 0o53, 0o213)):
+                parts, j = [], i + 1
+                for end in (COMMA, RPAR):
+                    neg = False
+                    if j < len(toks) and toks[j] in (PLUS, MINUS):
+                        neg = toks[j] == MINUS
+                        j += 1
+                    if not (j + 1 < len(toks) and real_const(toks[j]) and toks[j + 1] == end):
+                        break
+                    w = self.m[toks[j] >> 24]
+                    parts.append(negate_real(w) if neg else w)
+                    j += 2
+                if len(parts) == 2:
+                    out.append(self.const_word(tuple(parts), C))
+                    i = j
+                    continue
+            out.append(t)
+            i += 1
         return out
 
     # ---- arrays and subscripts (OPERAND) --------------------------------
@@ -346,7 +428,7 @@ class Front:
 
     def size(self, s):
         """words taken by a variable"""
-        n = 1
+        n = 2 if s.type in (D, C) else 1
         if s.name in self.arrays:
             for d in self.arrays[s.name].dims:
                 n *= d
@@ -396,7 +478,7 @@ class Front:
                 return word | self.general(forms[:r], dims) << 8 \
                     | (forms[0][2] - 1 & 0o77777) << 18
             terms = {}
-            off, mult = 0, 1
+            off, mult = 0, 2 if s.type in (D, C) else 1     # words of an element
             for i, (c, v, k) in enumerate(forms[:r]):
                 if v is not None:
                     terms[v] = terms.get(v, 0) + c * mult
@@ -419,7 +501,8 @@ class Front:
                 + subs[i] + [MINUS, self.const_word(integer(1), I)]
         expr += [RPAR] * (len(subs) - 1)
         self.nst_code.append([var, ASSIGN] + expr)
-        return word | 0o77777 << 18 | self.iform({var >> 33: 1}) << 8
+        k = 2 if s.type in (D, C) else 1        # words of an element
+        return word | (-k & 0o77777) << 18 | self.iform({var >> 33: k}) << 8
 
     def iform(self, terms):
         """the number of a linear form of variables (an entry of IFLIST)"""
@@ -491,7 +574,7 @@ class Front:
             name = self.unit_name
             self.put(self.name_cell(name) << 33 | 0o10, 0o47)
         for s in self.pending:
-            self.put(s.ptr << 33 | 1 << 18 | s.type << 15 | 0o10, 0o57)
+            self.put(s.ptr << 33 | self.size(s) << 18 | s.type << 15 | 0o10, 0o57)
         self.pending = []
         self.put(0, 0o72)
         if label:
@@ -560,12 +643,14 @@ class Front:
 
     def unit_statement(self, label, text):
         m = self.m
-        mt = re.match(r'(INTEGER|REAL)?(PROGRAM|SUBROUTINE|FUNCTION)([A-Z][A-Z0-9]*)'
+        mt = re.match(r'(INTEGER|REAL|LOGICAL|DOUBLEPRECISION|COMPLEX)?(PROGRAM|SUBROUTINE|FUNCTION)'
+                      r'([A-Z][A-Z0-9]*)'
                       r'(?:\((.*)\))?$', text)
         if mt and self.kind is None and '=' not in text:
             self.kind = mt.group(2)
             self.unit_name = mt.group(3)
-            typ = {'INTEGER': I, 'REAL': R, None: None}[mt.group(1)]
+            typ = {'INTEGER': I, 'REAL': R, 'LOGICAL': L, 'DOUBLEPRECISION': D,
+                   'COMPLEX': C, None: None}[mt.group(1)]
             s = self.declare(self.unit_name, typ)
             s.declared = False
             for p in (mt.group(4) or '').split(','):
@@ -584,9 +669,10 @@ class Front:
             return
         if self.kind is None:
             raise Error('no PROGRAM statement')
-        mt = re.match(r'(INTEGER|REAL|LOGICAL|DIMENSION)(.*)$', text)
+        mt = re.match(r'(INTEGER|REAL|LOGICAL|DOUBLEPRECISION|COMPLEX|DIMENSION)(.*)$', text)
         if mt and '=' not in text:
-            typ = {'INTEGER': I, 'REAL': R, 'LOGICAL': L, 'DIMENSION': None}[mt.group(1)]
+            typ = {'INTEGER': I, 'REAL': R, 'LOGICAL': L, 'DOUBLEPRECISION': D, 'COMPLEX': C,
+                   'DIMENSION': None}[mt.group(1)]
             for n in split_top(mt.group(2)):
                 self.dimension(n, typ)
             return
@@ -657,7 +743,7 @@ class Front:
         mt = re.match(r'CALL([A-Z][A-Z0-9]*)(\(.*\))?$', text)
         if mt:
             f = self.function(mt.group(1))
-            toks = [f | 0o100] + self.tokens(mt.group(2)) if mt.group(2) else None
+            toks = [f | 0o100] + self.tokens(mt.group(2), f) if mt.group(2) else None
             self.begin(label)
             if toks:
                 toks = self.funcref(toks)
@@ -816,6 +902,8 @@ class Front:
         if s is None:
             s = self.declare(name)
             s.declared = False
+        if s.type in (D, C):
+            off *= 2        # words of an element
         if s.param:
             raise Error('a parameter in EQUIVALENCE')           # 22026
         s.needmem = s.bss = True
@@ -956,7 +1044,7 @@ class Front:
                 pos = k + 1
             else:
                 mt = re.match(r'\.(TRUE|FALSE)\.|([0-7]+)B|([-+]?)(\d+(?:\.\d*)?'
-                              r'(?:E[-+]?\d+)?|\.\d+(?:E[-+]?\d+)?)', text[pos:])
+                              r'(?:[ED][-+]?\d+)?|\.\d+(?:[ED][-+]?\d+)?)', text[pos:])
                 if not mt:
                     raise Error('not a constant in DATA: ' + text[pos:])     # 22044
                 pos += mt.end()
@@ -966,7 +1054,9 @@ class Front:
                     out.append([int(mt.group(2), 8), R, rep])
                 else:
                     sign, num = mt.group(3), mt.group(4)
-                    if re.fullmatch(r'\d+', num):
+                    if 'D' in num:
+                        out.append([double(num, sign == '-'), D, rep])
+                    elif re.fullmatch(r'\d+', num):
                         out.append([integer(-int(num) if sign == '-' else int(num)),
                                     R if sign else I, rep])
                     else:
@@ -1005,23 +1095,24 @@ class Front:
         if subs is not None:
             if name not in self.arrays:
                 raise Error('no dimensions for ' + name)        # 22035
-            off, mult = 0, 1
+            off, mult = 0, 2 if s.type in (D, C) else 1
             dims = self.arrays[name].dims
             for i, k in enumerate(subs.split(',')):
                 off += (int(k) - 1) * mult
                 if i < len(dims):
                     mult *= dims[i]
-            count = 1
+            count = 2 if s.type == C else 1     # a complex: two reals
             self.put(s.ptr << 33 | (off & 0o77777) << 18 | 0o10, 0o52)
         elif s is not None and (s.needmem or s.datad or s.common):
-            count = self.size(s)
+            # a double precision number takes one constant, a complex two
+            count = self.size(s) // (2 if s.type == D else 1)
             self.put(s.ptr << 33 | 0o10, 0o52)
         else:
             if s is None:
                 s = self.declare(name)
                 s.declared = False
             s.bss = True
-            count = 1
+            count = 2 if s.type == C else 1     # a complex: two reals
             self.put(star, 0o52)
             self.put(s.ptr << 33 | 0o10, 0o54)
         s.datad = True
@@ -1032,10 +1123,18 @@ class Front:
                 raise Error('fewer constants than variables in DATA')
             v = values[0]
             n = min(count, v[2])
-            self.m[self.data_cell] = v[0]
-            self.put(self.data_cell << 24 | v[1] << 15 | 1, 0o53)
-            if n > 1:
-                self.put(0, n << 24 | 0o61)
+            if v[1] in (D, C):
+                # two words; REP marks that it repeats both
+                for w in v[0]:
+                    self.m[self.data_cell] = w
+                    self.put(self.data_cell << 24 | v[1] << 15 | 1, 0o53)
+                if n > 1:
+                    self.put(0, 1 << 39 | n << 24 | 0o61)
+            else:
+                self.m[self.data_cell] = v[0]
+                self.put(self.data_cell << 24 | v[1] << 15 | 1, 0o53)
+                if n > 1:
+                    self.put(0, n << 24 | 0o61)
             count -= n
             v[2] -= n
             if not v[2]:
@@ -1185,7 +1284,8 @@ class Front:
         if not self.entered:
             self.begin(None)
         if self.kind == 'FUNCTION':
-            put(gen.DIMENLIS << 33 | 1 << 18 | 0o10, 0o57)
+            n = 2 if self.syms[self.unit_name].type in (D, C) else 1
+            put(gen.DIMENLIS << 33 | n << 18 | 0o10, 0o57)
         # externals: those with declared names, backwards in the order of
         # the declarations, then the others backwards in the order of their
         # first use
@@ -1244,8 +1344,14 @@ class Front:
                 put(0, r << 24 | 0o141)
         put(0, 0o1000000141)
         if self.kind == 'FUNCTION':
-            put(self.special('*VALUE'), 0o22)
-            put(0, 0o103)
+            typ = self.syms[self.unit_name].type
+            if typ in (D, C):
+                # the value goes into the double accumulator
+                put(0, 0o103)
+                put(self.special('*VALUE') | typ << 15, 0)
+            else:
+                put(self.special('*VALUE'), 0o22)
+                put(0, 0o103)
         put(0, 0o1000000000000030)
         if self.temp_used:
             put(self.cell('*TEMP', 0o10) | 1 << 18, 0o57)
