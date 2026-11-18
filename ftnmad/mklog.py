@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""mklog.py seed [n] [do] [lc] - a Fortran program of n random IF statements
+"""mklog.py seed [n] [do] [lc] [fn] - a Fortran program of n random IF statements
 and logical assignments (stdout), for testing the code for logical
 expressions against the original compiler (ftest.py).  With "do" some
 statements are DO loops (nested, sharing terminal statements); with "lc"
-there are logical constants .TRUE. and .FALSE. among the operands."""
+there are logical constants .TRUE. and .FALSE. among the operands; with
+"fn" there are functions and CALLs with logical expressions among the
+arguments (FUNCREF)."""
 import random
 import sys
 
@@ -27,6 +29,26 @@ def arith(rnd, ints, depth=1):
 
 
 CONSTS = False
+FUNCS = False
+
+
+def funcall(rnd, depth):
+    """a reference of FN (real) or LF (logical) with some logical arguments"""
+    args = []
+    for _ in range(rnd.randint(1, 3)):
+        k = rnd.random()
+        if k < 0.5:
+            args.append(logical(rnd, min(depth, 1)))
+        elif k < 0.7:
+            args.append(arith(rnd, rnd.random() < 0.4))
+        else:
+            args.append(rnd.choice(LG + R + I))
+    if args[-1].endswith(')'):
+        # a logical last argument ending with a parenthesis is an error
+        # of the original (24104/24105): FUNCREF clears the closing
+        # parenthesis of the function and LOGEXPR sees the empty place
+        args.append('A')
+    return '%s(%s)' % (rnd.choice(['FN', 'LF']), ', '.join(args))
 
 
 def logical(rnd, depth):
@@ -35,6 +57,9 @@ def logical(rnd, depth):
         k = rnd.random()
         if CONSTS and k < 0.15:
             return rnd.choice(['.TRUE.', '.FALSE.'])
+        if FUNCS and k < 0.25:
+            f = funcall(rnd, depth)
+            return f if f[0] == 'L' else f + ' .GT. ' + arith(rnd, False)
         if k < 0.25:
             return rnd.choice(LG)
         ints = rnd.random() < 0.4
@@ -64,7 +89,7 @@ def doparams(rnd):
 
 def program(seed, n=30, loops=False):
     rnd = random.Random(seed)
-    s = '      PROGRAM G%d\n      LOGICAL F, G, H\n' % seed
+    s = '      PROGRAM G%d\n      LOGICAL F, G, H%s\n' % (seed, ', LF' if FUNCS else '')
     for v in R:
         s += '      %s = 1.5\n' % v
     for v in I:
@@ -106,6 +131,18 @@ def program(seed, n=30, loops=False):
                                             rnd.choice(labels))
             elif k < 0.4:
                 st = '%s = %s' % (rnd.choice(LG), logical(rnd, 3))
+            elif FUNCS and k < 0.5:
+                f = funcall(rnd, 2)
+                kk = rnd.random()
+                if kk < 0.3:
+                    st = 'CALL S' + f[2:]
+                elif f[0] == 'L':
+                    st = 'IF (%s) A = B' % f
+                elif kk < 0.65:
+                    st = 'A = %s + B' % f
+                else:
+                    st = 'IF (%s - 1.5) %d, %d, %d' % (f, rnd.choice(labels), rnd.choice(labels),
+                                                     rnd.choice(labels))
             else:
                 acts = ['A = B', 'F = G', 'STOP']
                 if not loops:
@@ -121,4 +158,5 @@ def program(seed, n=30, loops=False):
 if __name__ == '__main__':
     a = sys.argv[1:]
     CONSTS = 'lc' in a[2:]
+    FUNCS = 'fn' in a[2:]
     sys.stdout.write(program(int(a[0]), int(a[1]) if len(a) > 1 else 30, 'do' in a[2:]))

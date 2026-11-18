@@ -617,6 +617,7 @@ class Front:
             cond, rest = text[2:i + 1], text[i + 1:]
             toks = self.tokens(cond)
             self.begin(label)
+            toks = self.funcref(toks)
             mt = re.match(r'(\d+),(\d+),(\d+)$', rest)
             if mt:
                 self.expression(toks)
@@ -650,6 +651,7 @@ class Front:
             toks = [f | 0o100] + self.tokens(mt.group(2)) if mt.group(2) else None
             self.begin(label)
             if toks:
+                toks = self.funcref(toks)
                 # integer variables among the arguments may be changed
                 ints = []
                 for i in range(2, len(toks) - 1):
@@ -1072,19 +1074,62 @@ class Front:
             i += 1
         return False
 
+    def assignst(self, toks):
+        """ASSIGNST: a logical assignment, by jumps to the stores of 1 and 0"""
+        yes, no = self.blabel(), self.blabel()
+        end = self.load(toks)
+        self.lg.run(TOKENS + 2, end, yes, no)
+        self.put(yes, 0o2000000000000054)
+        self.put(self.const_word(1, I), 0o110)
+        self.put(no | 1 << 18, 0o30)
+        self.put(no, 0o2000000000000054)
+        self.put(0, 0o110)
+        self.put(toks[0], 0o2000000000000100)
+
+    def funcref(self, toks):
+        """FUNCREF: the arguments of functions (and of CALL) that are
+        logical expressions are computed first, into *V0001, *V0002, ...
+        (numbered anew in every statement), and replaced by these
+        variables.  The functions are taken from the right end, so inner
+        ones go first; the arguments from the left.  An argument is
+        logical if it is longer than one token and has a logical operator
+        or a relation (G44647)."""
+        toks = list(toks)
+        nv = 0
+        i = len(toks) - 1
+        while i >= 0:
+            if toks[i] & 0o77 == 0o13 and i + 1 < len(toks) and toks[i + 1] & 0o37 == LPAR:
+                start = j = i + 2
+                depth = 0
+                while j < len(toks):
+                    k = toks[j] & 0o37
+                    end_arg = depth == 0 and k in (COMMA, RPAR)
+                    if end_arg:
+                        arg = toks[start:j]
+                        if len(arg) > 1 and any(t & 0o77777 in (0o12, 0o22) for t in arg):
+                            nv += 1
+                            v = self.variable('*V%04d' % nv) & ~0o700000 | L << 15
+                            # the last argument still has the place of the
+                            # closing parenthesis, cleared, at its end
+                            self.assignst([v, ASSIGN] + arg + [0] * (k == RPAR))
+                            toks[start:j] = [v]
+                            j = start + 1
+                        else:
+                            j += 1
+                        if k == RPAR:
+                            break
+                        start = j
+                        continue
+                    depth += (k == LPAR) - (k == RPAR)
+                    j += 1
+            i -= 1
+        return toks
+
     def assignment(self, toks):
         m = self.m
         n = len(toks)
         if toks[1] == ASSIGN and self.logical(toks):
-            yes, no = self.blabel(), self.blabel()
-            end = self.load(toks)
-            self.lg.run(TOKENS + 2, end, yes, no)
-            self.put(yes, 0o2000000000000054)
-            self.put(self.const_word(1, I), 0o110)
-            self.put(no | 1 << 18, 0o30)
-            self.put(no, 0o2000000000000054)
-            self.put(0, 0o110)
-            self.put(toks[0], 0o2000000000000100)
+            self.assignst(self.funcref(toks))
             return
         if n == 3 and toks[1] == ASSIGN and toks[0] == toks[2]:
             # V = V: nothing, but for an integer its index routine is called
@@ -1099,7 +1144,7 @@ class Front:
             self.put(toks[-1], n - 3)
             self.put(toks[0] & ~0o20, 0o12)
             return
-        self.expression(toks)
+        self.expression(self.funcref(toks))
 
     # ---- the end of the unit -------------------------------------------
     def epilogue(self):
