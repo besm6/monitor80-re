@@ -206,6 +206,10 @@ class Front:
         self.params = []
         self.entered = False
         self.functions = {}     # external functions: name -> token
+        self.sfuncs = set()     # statement functions (no SUBP) ...
+        self.sf_bound = 0       # ... at the start of self.functions (D33212)
+        self.sf_args = {}       # dummy -> token while compiling one
+        self.sf_count = {'R': 0, 'L': 0}    # cells R*nnnn, L*nnnn of dummies
         self.arrays = {}
         self.value_used = False
         self.relcn_cell = 0
@@ -330,12 +334,19 @@ class Front:
         self.nb += 1
         return self.special('*B%04d' % self.nb)
 
+    def note_commons(self):
+        """ARITHEXP after G46107: D33143+41 keeps the largest number of
+        common temporaries (cells *Ynnnn of a statement function)"""
+        c = gen.D33143 + 41
+        self.m[c] = max(self.m[c], self.ar.common)
+
     def arith(self, start, end):
         try:
             last = self.ar.run(start, end)
         except Abort:
             return
         self.eg.run(TABLE, last)
+        self.note_commons()
 
     def load(self, toks):
         for i, t in enumerate(toks):
@@ -361,7 +372,9 @@ class Front:
                 out.append(self.constant(mt.group(1)))
             elif mt.group(2):
                 name = mt.group(2)
-                if text[pos:pos + 1] == '(' and name in self.arrays:
+                if name in self.sf_args and text[pos:pos + 1] != '(':
+                    out.append(self.sf_args[name])
+                elif text[pos:pos + 1] == '(' and name in self.arrays:
                     end = closing(text, pos)
                     subs = [self.tokens(t) for t in split_top(text[pos + 1:end])]
                     out.append(self.subscripted(self.arrays[name], subs))
@@ -566,10 +579,11 @@ class Front:
             self.cells[text] = self.name_cell(text)
         return self.cells[text] << 33 | kind
 
-    def begin(self, label):
-        """the start of an executable statement"""
+    def begin(self, label, sfunc=False):
+        """the start of an executable statement (or of a statement
+        function: no entry yet)"""
         self.declarations()
-        if not self.entered:
+        if not self.entered and not sfunc:
             self.entered = True
             name = self.unit_name
             self.put(self.name_cell(name) << 33 | 0o10, 0o47)
@@ -703,6 +717,10 @@ class Front:
                 self.leave()
             return True
         self.jumped = False
+        mt = re.match(r'([A-Z][A-Z0-9]*)\(([A-Z][A-Z0-9]*(?:,[A-Z][A-Z0-9]*)*)\)=(.*)$', text)
+        if mt and not self.entered and mt.group(1) not in self.arrays:
+            self.statement_function(label, mt.group(1), mt.group(2).split(','), mt.group(3))
+            return
         if text.startswith('IF('):
             depth = 0
             for i, c in enumerate(text):
@@ -751,10 +769,13 @@ class Front:
                 # whole arrays)
                 arrays = {self.syms[n].ptr for n in self.arrays}
                 ints = []
-                for i in range(2, len(toks) - 1):
+                depth = 0       # only the arguments themselves, not those of
+                for i in range(2, len(toks) - 1):       # functions in them
                     t = toks[i]
+                    depth += (toks[i - 1] == LPAR) - (toks[i - 1] == RPAR)
                     if t & 0o37 == 0o10 and not t & 0o77777777427 and t not in ints \
                             and not self.is_param(t >> 33) and t >> 33 not in arrays \
+                            and depth == 1 \
                             and toks[i - 1] in (LPAR, COMMA) and toks[i + 1] in (RPAR, COMMA):
                         ints.append(t)
                 self.expression(toks)
@@ -1169,6 +1190,7 @@ class Front:
         except Abort:
             return
         self.eg.run(TABLE, last)
+        self.note_commons()
 
     @staticmethod
     def logical(toks):
@@ -1200,6 +1222,89 @@ class Front:
                         break
             i += 1
         return False
+
+    def sf_cell(self, name, typ):
+        """a cell for a dummy or the value of a statement function: its name
+        makes its type by the first letter if it can (R*, E* real, L*, I*
+        integer); otherwise it is declared, with a BSS item here"""
+        s = self.syms.get(name)
+        if typ == self.implied(name):
+            return self.variable(name)
+        if s is None:
+            s = self.declare(name, typ)
+            s.declared = False
+            s.bss = True
+            self.put(s.ptr << 33 | self.size(s) << 18 | 0o10, 0o57)
+        return s.ptr << 33 | typ << 15 | 0o10
+
+    def statement_function(self, label, name, dummies, body):
+        """F(a, b, ...) = expression: a routine labelled F; the addresses of
+        the arguments are on the stack (the last one in A), their values
+        go to cells R*nnnn / L*nnnn, the value to E*nnnn / D*nnnn"""
+        def typ_of(n):
+            s = self.syms.get(n)
+            return s.type if s else self.implied(n)
+        ftyp = typ_of(name)
+        nsf = len(self.sfuncs)
+        self.sfuncs.add(name)
+        self.function(name)
+        # the table of functions: the new one changes places with the first
+        # entry after the statement functions (the order of the SUBP lines)
+        names = list(self.functions)
+        i, j = names.index(name), self.sf_bound
+        names[i], names[j] = names[j], names[i]
+        self.functions = {n: self.functions[n] for n in names}
+        self.sf_bound += 1
+        self.begin(label, sfunc=True)
+        self.put(self.name_cell(name) << 33 | 0o10, 0o2000000000000054)
+        args = {}
+        for i in range(len(dummies) - 1, -1, -1):
+            d = dummies[i]
+            t = typ_of(d)
+            letter = 'L' if t in (I, L) else 'R'
+            self.sf_count[letter] += 1
+            cell = self.sf_cell('%s*%04d' % (letter, self.sf_count[letter]), t)
+            args[d] = cell
+            store = 0o101 if i else 0o100      # STX while more remain
+            self.put(0, 0o1600000140)
+            self.put(0, 0o1600000000000110)
+            if t in (D, C):
+                self.put(cell & ~0o700000, 0o100)
+                self.put(0, 0o1600000100000110)
+                self.put(cell & ~0o700000 | 1 << 18, store)
+            else:
+                self.put(cell & ~0o700000, store)
+        self.put(0, 0o1500000142)
+        self.put(0o10, 0o103)
+        # the value: E*/I* if the function has the type of its first
+        # letter, D* if its type is declared (even the same)
+        letter = 'D' if name in self.syms else 'E' if ftyp == R else 'I'
+        value = self.sf_cell('%s*%04d' % (letter, nsf), ftyp)
+        # G40152: the temporaries of a function are *Xnnnn+k, its common
+        # subexpressions *Ynnnn+k; their counters start from 0
+        m = self.m
+        m[gen.D34621 + 71] = 1
+        m[gen.D33143 + 138] = text_word('*X%04d' % nsf)
+        m[gen.D33143 + 137] = text_word('*Y%04d' % nsf)
+        m[gen.D33143 + 55] = m[gen.D33143 + 41] = 0
+        self.sf_args = args
+        try:
+            toks = self.tokens(body)
+        finally:
+            self.sf_args = {}
+        for s in self.pending:      # declared variables first used here
+            self.put(s.ptr << 33 | self.size(s) << 18 | s.type << 15 | 0o10, 0o57)
+        self.pending = []
+        self.assignment([value, ASSIGN] + toks)
+        self.put(0, 0o1700000000000023)
+        self.put(0, 0o30)
+        for cnt, cell in ((55, 138), (41, 137)):
+            if m[gen.D33143 + cnt]:
+                self.put((gen.D33143 + cell) << 33 | 0o10, m[gen.D33143 + cnt] << 24 | 0o54)
+        m[gen.D34621 + 71] = 0
+        m[gen.D33143 + 138] = text_word('ERASER')
+        m[gen.D33143 + 137] = text_word('CERASE')
+        m[gen.D33143 + 55] = m[gen.D33143 + 41] = 0
 
     def assignst(self, toks):
         """ASSIGNST: a logical assignment, by jumps to the stores of 1 and 0"""
@@ -1288,8 +1393,9 @@ class Front:
             put(gen.DIMENLIS << 33 | n << 18 | 0o10, 0o57)
         # externals: those with declared names, backwards in the order of
         # the declarations, then the others backwards in the order of their
-        # first use
-        names = list(self.functions)
+        # first use (FORTR* 04341: the table from its end down to the
+        # statement functions)
+        names = list(self.functions)[self.sf_bound:]
         decl = sorted((n for n in names if n in self.syms and self.syms[n].ptr < IMPLICIT
                        and self.syms[n].ptr >= gen.DIMENLIS),
                       key=lambda n: self.syms[n].ptr)

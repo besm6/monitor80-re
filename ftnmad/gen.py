@@ -252,9 +252,19 @@ class Gen:
         return self.plain(tmpl, 0, 0)
 
     def stfun(self, item, name):
-        if self.m[D34621 + 71]:
-            raise NotImplementedError('temporary inside a statement function')
-        return item, name, None
+        """*1202B/*1227B: a temporary; in a statement function (D34621+71)
+        the name is *Xnnnn / *Ynnnn (D33143+138/137 set per function) and the
+        number of the temporary is an offset: the item gets bits 39 and 22;
+        an instruction with flags (bits 45-48 of w2) whose code has 0100
+        becomes UTC name+offset and the instruction without an address"""
+        if not self.m[D34621 + 71]:
+            return item, name, None
+        if not self.op >> 44 & 0o17:
+            return item | 1 << 39 | 1 << 22, name, None
+        if not item & 0o100:
+            return item, name, None
+        self.emitq(item & 0o7777777777700000 | 0o20000022, name)
+        return self.op & 0o77777, None, None
 
     def indexed(self, tmpl):
         """*1002B: an operand with a subscript kept in an index register.
