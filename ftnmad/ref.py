@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""ref.py [-l] file.f ... - compile Fortran sources with the original FORTR*
-(Монитор-80 on volume 2148 under dispak, cards *SUPER and *FULL) and print
-the Madlen text it generates, without the address and code columns of the
-listing.  With -l the whole listing is printed as is."""
+"""ref.py [-l] [-ftn|-forex] file.f ... - compile Fortran sources with the original
+FORTR* (Монитор-80 on volume 2148 under dispak, cards *SUPER and *FULL) and
+print the Madlen text it generates, without the address and code columns of
+the listing.  With -l the whole listing is printed as is.  With -ftn the
+compiler is ФОРТРАН-ГДР (card *FTN) instead, with -forex ФОРЭКС (card
+*FOREX), for comparison; their listings are always printed whole."""
 import subprocess, sys, tempfile, os, re
 
 PFX = 24       # width of the address/code columns under *SUPER
 HEAD = 'шифр 419999ЗС5^\nЛЕН 40(2148)^\nЕЕВ1А3\n*NAME\n*SUPER\n*FULL\n*FORTRAN\n'
 TAIL = '*END FILE\n``````\nЕКОНЕЦ\n'
 
-def listing(src):
+def listing(src, card='*FORTRAN'):
     if not src.endswith('\n'):
         src += '\n'
     with tempfile.TemporaryDirectory() as t:
         job = os.path.join(t, 'job.b6')
         with open(job, 'w') as f:
-            f.write(HEAD + src + TAIL)
+            f.write(HEAD.replace('*FORTRAN', card) + src + TAIL)
         return subprocess.run(['dispak', '-l', job], capture_output=True,
                               text=True, cwd=t).stdout
 
@@ -41,9 +43,10 @@ def madlen(lst):
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    full = a[:1] == ['-l']
-    for fn in a[full:]:
-        lst = listing(open(fn).read())
+    card = '*FTN' if '-ftn' in a else '*FOREX' if '-forex' in a else '*FORTRAN'
+    full = '-l' in a or card != '*FORTRAN'
+    for fn in [x for x in a if x not in ('-l', '-ftn', '-forex')]:
+        lst = listing(open(fn).read(), card)
         if full:
             sys.stdout.write(lst)
         else:
