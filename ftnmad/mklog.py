@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""mklog.py seed [n] [do] - a Fortran program of n random IF statements and
-logical assignments (stdout), for testing the code for logical
-expressions against the original compiler (ftest.py).  With a third
-argument some statements are DO loops (nested, sharing terminal statements)."""
+"""mklog.py seed [n] [do] [lc] - a Fortran program of n random IF statements
+and logical assignments (stdout), for testing the code for logical
+expressions against the original compiler (ftest.py).  With "do" some
+statements are DO loops (nested, sharing terminal statements); with "lc"
+there are logical constants .TRUE. and .FALSE. among the operands."""
 import random
 import sys
 
@@ -25,10 +26,15 @@ def arith(rnd, ints, depth=1):
     return arith(rnd, ints, 0) + ' ' + rnd.choice('+-*') + ' ' + arith(rnd, ints, 0)
 
 
+CONSTS = False
+
+
 def logical(rnd, depth):
     k = rnd.random()
     if depth == 0 or k < 0.3:
         k = rnd.random()
+        if CONSTS and k < 0.15:
+            return rnd.choice(['.TRUE.', '.FALSE.'])
         if k < 0.25:
             return rnd.choice(LG)
         ints = rnd.random() < 0.4
@@ -36,7 +42,8 @@ def logical(rnd, depth):
         s = arith(rnd, ints) + ' .' + op + '. ' + arith(rnd, ints)
         return '(' + s + ')' if rnd.random() < 0.15 else s
     if k < 0.42:
-        return '.NOT. ' + rnd.choice(LG) if rnd.random() < 0.4 else \
+        leaf = rnd.choice(LG + ['.TRUE.', '.FALSE.'] if CONSTS else LG)
+        return '.NOT. ' + leaf if rnd.random() < 0.4 else \
             '.NOT. (' + logical(rnd, depth - 1) + ')'
     if k < 0.55:
         return '(' + logical(rnd, depth - 1) + ')'
@@ -112,5 +119,6 @@ def program(seed, n=30, loops=False):
 
 
 if __name__ == '__main__':
-    sys.stdout.write(program(int(sys.argv[1]), int(sys.argv[2]) if len(sys.argv) > 2 else 30,
-                             len(sys.argv) > 3))
+    a = sys.argv[1:]
+    CONSTS = 'lc' in a[2:]
+    sys.stdout.write(program(int(a[0]), int(a[1]) if len(a) > 1 else 30, 'do' in a[2:]))

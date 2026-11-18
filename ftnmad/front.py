@@ -20,6 +20,7 @@ from items import text_word, word_text, parse_items, render, Unit
 MASK48 = (1 << 48) - 1
 TYPE = 0o700000
 I, R, D, C, L = 0, 1, 2, 3, 4
+LCONST = 5               # the type bits of a logical constant token
 
 # places of our tables in the memory (free areas beside the generator's)
 ATTR = 0o40000          # attributes of the declared names
@@ -129,8 +130,9 @@ class Sym:
 
 
 LOGOP = r'(?:EQ|NE|GT|LT|GE|LE|AND|OR|NOT)'
-TOKEN = re.compile(r'(\d+(?:\.(?!' + LOGOP + r'\.)\d*)?(?:E[+-]?\d+)?|\.\d+(?:E[+-]?\d+)?)'
-                   r'|([A-Z][A-Z0-9]*)|(\*\*|[-+*/=(),]|\.' + LOGOP + r'\.)')
+TOKEN = re.compile(r'(\d+(?:\.(?!(?:' + LOGOP + r'|TRUE|FALSE)\.)\d*)?(?:E[+-]?\d+)?|\.\d+(?:E[+-]?\d+)?)'
+                   r'|([A-Z][A-Z0-9]*)|(\*\*|[-+*/=(),]|\.' + LOGOP + r'\.)'
+                   r'|\.(TRUE|FALSE)\.')
 
 
 class Front:
@@ -316,8 +318,12 @@ class Front:
                     out.append(self.function(name))
                 else:
                     out.append(self.variable(name))
-            else:
+            elif mt.group(3):
                 out.append(OPS[mt.group(3)])
+            else:
+                # a logical constant: a word 1 or 0; its token has the
+                # type bits 5 (as SCANSTMT makes it)
+                out.append(self.const_word(int(mt.group(4) == 'TRUE'), LCONST))
         return out
 
     # ---- arrays and subscripts (OPERAND) --------------------------------
@@ -1035,10 +1041,41 @@ class Front:
             return
         self.eg.run(TABLE, last)
 
+    @staticmethod
+    def logical(toks):
+        """is an assignment logical (CONTROL at *0353B)?  Only when the
+        statement has a logical operator, a relation or a logical constant
+        somewhere (SCANSTMT's flag in cell 107); then the tokens from the
+        left side on are looked at, not counting the arguments of
+        functions: an operand of type LOGICAL or a logical constant, a
+        logical operator or a relation makes it logical"""
+        def dot(t):
+            return t & 0o37 in (0o12, 0o22) or t & 0o700037 == LCONST << 15 | 1
+        if not any(dot(t) for t in toks):
+            return False
+        i = 0
+        while i < len(toks):
+            t = toks[i]
+            if t >> 15 & 7 in (L, LCONST) or dot(t):
+                return True
+            if t & 0o37 == 0o13:
+                # skip the arguments, to the parenthesis that closes them
+                depth = 0
+                while True:
+                    i += 1
+                    if i >= len(toks):
+                        return False
+                    k = toks[i] & 0o37
+                    depth += (k == LPAR) - (k == RPAR)
+                    if depth <= 0 and k == RPAR:
+                        break
+            i += 1
+        return False
+
     def assignment(self, toks):
         m = self.m
         n = len(toks)
-        if toks[1] == ASSIGN and any(t & 0o37 in (0o12, 0o22) for t in toks[2:]):
+        if toks[1] == ASSIGN and self.logical(toks):
             yes, no = self.blabel(), self.blabel()
             end = self.load(toks)
             self.lg.run(TOKENS + 2, end, yes, no)
@@ -1071,7 +1108,15 @@ class Front:
             self.begin(None)
         if self.kind == 'FUNCTION':
             put(gen.DIMENLIS << 33 | 1 << 18 | 0o10, 0o57)
-        for t in reversed(list(self.functions.values())):
+        # externals: those with declared names, backwards in the order of
+        # the declarations, then the others backwards in the order of their
+        # first use
+        names = list(self.functions)
+        decl = sorted((n for n in names if n in self.syms and self.syms[n].ptr < IMPLICIT
+                       and self.syms[n].ptr >= gen.DIMENLIS),
+                      key=lambda n: self.syms[n].ptr)
+        for n in reversed([n for n in names if n not in decl] + decl):
+            t = self.functions[n]
             put(t >> 33 << 33 | 0o10, 0o45)
         self.index_routines()
         for s in self.params:
