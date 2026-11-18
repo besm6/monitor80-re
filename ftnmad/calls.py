@@ -3,7 +3,7 @@
 original compiler, in symbolic form: one line per call, "op operand".
 With -e the arguments are Fortran statements instead of a file; they are
 put into a main program (variables I-N integer, others real, all given
-values first).  Used to learn and to check the order of operations."""
+values first); declarations (DIMENSION, INTEGER, ...) among them go first.  Used to learn and to check the order of operations."""
 import sys
 import trace
 from items import word_text
@@ -59,13 +59,21 @@ def calls(src):
         yield '%s%s %s' % (name, '{%o}' % hi if hi else '', arg), w1, w2
 
 
+DECL = r'(DIMENSION|INTEGER|REAL|LOGICAL|COMMON|DOUBLE|COMPLEX)\b'
+
+
 def program(stmts):
     names = set()
     import re
+    decl = [s for s in stmts if re.match(DECL, s)]
+    stmts = [s for s in stmts if not re.match(DECL, s)]
+    arrays = set()
+    for s in decl:
+        arrays |= set(re.findall(r'\b([A-Z][A-Z0-9]*)\(', s))
     for s in stmts:
         names |= set(re.findall(r'\b[A-Z][A-Z0-9]*\b', re.sub(r'\.[A-Z]+\.', ' ', s)))
-    src = '      PROGRAM QQ\n'
-    for n in sorted(names):
+    src = '      PROGRAM QQ\n' + ''.join('      %s\n' % s for s in decl)
+    for n in sorted(names - arrays):
         if len(n) <= 2:
             src += '      %s = %s\n' % (n, '1' if n[0] in 'IJKLMN' else '1.0')
     src += '      CONTINUE\n'
@@ -77,8 +85,10 @@ def program(stmts):
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[0] == '-e':
+        import re
         src = program(a[1:])
-        skip = src.count('\n') - len(a[1:]) - 3     # the assignments and CONTINUE
+        a = [x for x in a if not re.match(DECL, x)]
+        skip = src.count('\n') - len(a[1:]) - 3 - (len(sys.argv) - 1 - len(a))
         groups = []
         for t, w1, w2 in calls(src):
             if t.startswith('STMT'):

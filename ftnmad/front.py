@@ -1,6 +1,8 @@
 """The front end: statements of one program unit -> calls of the generator.
 
 Takes the place of SCANSTMT, CBDPR, CONTROL and ENDPRO of the original.
+EQUIVALENCE and DATA are kept until the first executable statement and
+done then, as CBPROC of CBDPR does (CBPRCZ, CBBSS, CBEQU).
 The tables live in the same memory array as the generator's (gen.py):
 a name is a word of text, an operand is a word with a pointer to it.
 """
@@ -13,7 +15,7 @@ from arith import Arith, Abort, PLUS, MINUS, MUL, DIV, POWER, ASSIGN, \
     LPAR, RPAR, COMMA
 from expgen import ExpGen
 from logic import Logic
-from items import text_word, parse_items, render, Unit
+from items import text_word, word_text, parse_items, render, Unit
 
 MASK48 = (1 << 48) - 1
 TYPE = 0o700000
@@ -25,6 +27,8 @@ POOL = 0o41000          # constants
 NAMES = 0o50000         # names of undeclared variables, labels, externals
 TABLE = 0o60000         # the table of subexpressions
 TOKENS = 0o64000        # the tokens of a statement
+IMPLICIT = 0o31223      # names of undeclared variables, downwards from here
+                        # (the order of the pointers decides orders below)
 
 RELOPS = ['.EQ.', '.NE.', '.GT.', '.LT.', '.GE.', '.LE.']
 OPS = {'+': PLUS, '-': MINUS, '*': MUL, '/': DIV, '**': POWER, '=': ASSIGN,
@@ -44,7 +48,52 @@ class Error(Exception):
 
 def integer(n):
     """an integer constant as the compiler keeps it"""
-    return 0o6400000000000000 | n
+    return 0o6400000000000000 | n & 0o37777777777777
+
+
+class Form:
+    """a linear form of a standard subscript (an entry of IFLIST).
+    kind 1-3: c*v terms (ptr, coef); kind 4-7: an array with variable
+    dimensions, s1 + d1*(s2 - 1 + d2*(s3 - 1)) with si = ci*vi + ki: c, v
+    (pointers or 0), d (pointers or constants), A = k2-1, B = k3-1;
+    kind 4: two subscripts; 5, 6, 7: three, d1 constant, d2 constant, none"""
+    def __init__(self, n, kind, terms=(), c=(), v=(), d=(), A=0, B=0):
+        self.n, self.kind, self.terms = n, kind, list(terms)
+        self.c, self.v, self.d, self.A, self.B = list(c), list(v), list(d), A, B
+
+    def cell(self):
+        """an *Innnn cell is needed (not just a variable)"""
+        return self.kind > 3 or len(self.terms) > 1 or self.terms[0][1] != 1
+
+    def variables(self):
+        if self.kind <= 3:
+            return [p for p, c in self.terms]
+        return [p for p in self.v if p]
+
+
+def signed_real(x):
+    """a fraction -> a normalized real number; a negative mantissa is in
+    [-1, -1/2), in two's complement"""
+    if x >= 0:
+        return real(x)
+    e = 0
+    while x < -1:
+        x /= 2
+        e += 1
+    while x >= Fraction(-1, 2):
+        x *= 2
+        e -= 1
+    return (e + 64) << 41 | int(x * (1 << 40)) & ((1 << 41) - 1)
+
+
+class Eq:
+    """an entry of the table of equivalences (D06466+69 in CBPRCZ): a
+    variable; a root has the size of its class, another one the entry it
+    is equivalenced to and its offset there"""
+    def __init__(self, sym, size):
+        self.sym, self.size = sym, size
+        self.parent, self.off = None, 0
+        self.done = False       # its EQU has been made (CBEQU)
 
 
 def real(x):
@@ -70,6 +119,9 @@ class Sym:
         self.bss = False        # memory has been asked for
         self.value = False      # the value of the function
         self.words = [1]
+        self.needmem = False    # an array or in EQUIVALENCE: BSS by CBBSS
+        self.child = False      # equivalenced to another one: no BSS
+        self.datad = False      # given a value by DATA
 
 
 LOGOP = r'(?:EQ|NE|GT|LT|GE|LE|AND|OR|NOT)'
@@ -96,6 +148,7 @@ class Front:
         self.syms = {}
         self.ndecl = 0          # names in the list of declared ones
         self.pool = POOL
+        self.consts = {}
         self.names = NAMES
         self.implicit = []
         self.labels = {}
@@ -108,6 +161,28 @@ class Front:
         self.value_used = False
         self.relcn_cell = 0
         self.jumped = False     # the last statement was a jump
+        self.impl = IMPLICIT
+        # subscripts (OPERAND): the linear forms of the standard subscripts
+        # (IFLIST), the variables they depend on (D32477+7), of which the
+        # first `front` are DO variables with step 1 (D33143+84)
+        self.iforms = {}        # the key of a form -> its number
+        self.forms = []         # Form, by number - 1
+        self.ivars = []
+        self.front = 0
+        self.nst = 0            # N*STnn variables of the statement
+        self.nst_code = []      # their assignments, to be compiled first
+        self.cells = {}         # name -> cell of a generated name
+        self.update = []        # names of the variables with routines *Unnnn
+        self.cforms = []        # the forms with cells *Innnn
+        self.iterms = []        # their terms, sorted
+        self.temp_used = False
+        self.equivs = []        # the texts of EQUIVALENCE statements
+        self.datas = []         # the texts of DATA statements
+        self.decl_done = False
+        self.eq = {}            # name -> Eq
+        self.eqlist = []        # Eq in the order they were made
+        self.data_cell = 0
+        self.raw = ''           # the statement as it is on the cards
 
     def put(self, w1, w2):
         if w1 & 0o77777 == 0o10 and w2 & 0o77777 in (0o11, 0o12, 0o100, 0o101) \
@@ -147,7 +222,9 @@ class Front:
     def variable(self, name):
         s = self.syms.get(name)
         if s is None:
-            s = self.syms[name] = Sym(name, self.name_cell(name), self.implied(name))
+            self.impl -= 1
+            self.m[self.impl] = text_word(name)
+            s = self.syms[name] = Sym(name, self.impl, self.implied(name))
             s.bss = True
             self.implicit.append(name)
         elif s.value:
@@ -169,15 +246,20 @@ class Front:
         return t
 
     def constant(self, text):
-        p = self.pool
-        self.pool += 1
+        """a constant: one entry of the table for every value"""
         if re.fullmatch(r'\d+', text):
-            self.m[p] = integer(int(text))
-            return p << 24 | 1
+            return self.const_word(integer(int(text)), I)
         mant, _, exp = text.partition('E')
         x = Fraction(mant) * Fraction(10) ** int(exp or 0)
-        self.m[p] = real(x)
-        return p << 24 | R << 15 | 1
+        return self.const_word(real(x), R)
+
+    def const_word(self, value, typ):
+        p = self.consts.get((value, typ))
+        if p is None:
+            p = self.consts[value, typ] = self.pool
+            self.pool += 1
+            self.m[p] = value
+        return p << 24 | typ << 15 | 1
 
     def label(self, n):
         n = str(int(n))
@@ -218,7 +300,12 @@ class Front:
                 out.append(self.constant(mt.group(1)))
             elif mt.group(2):
                 name = mt.group(2)
-                if text[pos:pos + 1] == '(' and name not in self.arrays:
+                if text[pos:pos + 1] == '(' and name in self.arrays:
+                    end = closing(text, pos)
+                    subs = [self.tokens(t) for t in split_top(text[pos + 1:end])]
+                    out.append(self.subscripted(self.arrays[name], subs))
+                    pos = end + 1
+                elif text[pos:pos + 1] == '(':
                     out.append(self.function(name))
                 else:
                     out.append(self.variable(name))
@@ -226,8 +313,166 @@ class Front:
                 out.append(OPS[mt.group(3)])
         return out
 
+    # ---- arrays and subscripts (OPERAND) --------------------------------
+    def dimension(self, item, typ=None):
+        """NAME(d1,...) of DIMENSION or of a type statement"""
+        mt = re.match(r'([A-Z][A-Z0-9]*)\((.*)\)$', item)
+        if not mt:
+            self.declare(item, typ)
+            return
+        s = self.declare(mt.group(1), typ)
+        # a dimension of a parameter array may be a parameter
+        s.dims = [int(d) if d.isdigit() else d for d in mt.group(2).split(',')]
+        if len(s.dims) > 3:
+            raise Error('more than three dimensions')      # 42010
+
+        s.bss = True
+        self.arrays[s.name] = s
+        if not s.param:
+            s.needmem = True
+
+    def size(self, s):
+        """words taken by a variable"""
+        n = 1
+        if s.name in self.arrays:
+            for d in self.arrays[s.name].dims:
+                n *= d
+        return n
+
+    def standard(self, toks):
+        """a standard subscript c*v+k, c*v-k, c*v, v+k, v-k, v or k (c and k
+        integer constants, v an integer variable) -> (c, v, k), else None"""
+        def const(t):
+            return t & 0o77777 == 1 and not t & TYPE
+
+        def value(t):
+            return self.m[t >> 24] & 0o77777777777777
+
+        t = list(toks)
+        if len(t) == 1 and const(t[0]):
+            return 0, None, value(t[0])
+        c, k = 1, 0
+        if len(t) >= 3 and const(t[0]) and t[1] == MUL:
+            c = value(t[0])
+            t = t[2:]
+        if not t or t[0] & 0o777777777 != 0o10:
+            return None
+        v = t[0] >> 33
+        # a declared variable with memory of its own (EQUIVALENCE, DATA):
+        # its size in the attributes makes it unfit (OPERAND *0125B)
+        if any(x.ptr == v and (x.needmem or x.datad) for x in self.syms.values()):
+            return None
+        t = t[1:]
+        if t:
+            if len(t) != 2 or t[0] not in (PLUS, MINUS) or not const(t[1]):
+                return None
+            k = value(t[1]) if t[0] == PLUS else -value(t[1])
+        return c, v, k
+
+    def subscripted(self, s, subs):
+        """the token of an element of the array s"""
+        dims = s.dims
+        word = s.ptr << 33 | s.type << 15 | 0o30
+        forms = [self.standard(t) for t in subs]
+        if None not in forms:
+            # constant subscripts 1 at the end do not count
+            r = len(forms)
+            while r > 1 and forms[r - 1] == (0, None, 1):
+                r -= 1
+            if any(not isinstance(d, int) for d in dims[:r - 1]):
+                return word | self.general(forms[:r], dims) << 8 \
+                    | (forms[0][2] - 1 & 0o77777) << 18
+            terms = {}
+            off, mult = 0, 1
+            for i, (c, v, k) in enumerate(forms[:r]):
+                if v is not None:
+                    terms[v] = terms.get(v, 0) + c * mult
+                off += (k - 1) * mult
+                if i < r - 1:
+                    mult *= dims[i]
+            word |= (off & 0o77777) << 18
+            if terms:
+                word |= self.iform(terms) << 8
+            return word
+        # a non-standard subscript: the number of the element is computed
+        # into a variable first: s1 + d1*(s2 - 1 + d2*(s3 - 1 ...))
+        self.nst += 1
+        var = self.variable('N*ST%02d' % self.nst)
+        expr = list(subs[0])
+        for i in range(1, len(subs)):
+            d = dims[i - 1]
+            d = self.const_word(integer(d), I) if isinstance(d, int) else self.variable(d)
+            expr += [PLUS, d, MUL, LPAR] \
+                + subs[i] + [MINUS, self.const_word(integer(1), I)]
+        expr += [RPAR] * (len(subs) - 1)
+        self.nst_code.append([var, ASSIGN] + expr)
+        return word | 0o77777 << 18 | self.iform({var >> 33: 1}) << 8
+
+    def iform(self, terms):
+        """the number of a linear form of variables (an entry of IFLIST)"""
+        key = tuple(sorted(terms.items()))
+        n = self.iforms.get(key)
+        if n is None:
+            n = self.iforms[key] = len(self.forms) + 1
+            self.forms.append(Form(n, len(key), terms=key))
+            words = [coef << 15 | ptr for ptr, coef in key]
+            words[0] |= len(key) << 45 | n << 30
+            self.ifl_write(words)
+        for ptr, coef in reversed(key):
+            self.ivar(ptr)
+        return n
+
+    def general(self, forms, dims):
+        """the form of a subscript of an array with variable dimensions"""
+        c = [f[0] for f in forms] + [0]
+        v = [f[1] or 0 for f in forms] + [0]
+        d = [dims[i] if isinstance(dims[i], int) else self.syms[dims[i]].ptr
+             for i in range(len(forms) - 1)] + [0]
+        A = forms[1][2] - 1
+        B = forms[2][2] - 1 if len(forms) > 2 else 0
+        if len(forms) == 2:
+            kind = 4
+        else:
+            kind = 4 + isinstance(dims[0], int) + 2 * isinstance(dims[1], int) \
+                if not (isinstance(dims[0], int) and isinstance(dims[1], int)) else None
+            kind = {5: 5, 6: 6, 4: 7}[kind]
+        words = [c[0] << 15 | v[0], d[0] << 30 | c[1] << 15 | v[1],
+                 d[1] << 30 | c[2] << 15 | v[2] if len(forms) > 2 else 0,
+                 (A & 0o77777) << 30 | (B & 0o77777) << 15 | 0o77777]
+        key = ('general', kind) + tuple(words)
+        n = self.iforms.get(key)
+        if n is None:
+            n = self.iforms[key] = len(self.forms) + 1
+            self.forms.append(Form(n, kind, c=c[:3], v=v[:3], d=d[:2], A=A, B=B))
+            words[0] |= kind << 45 | n << 30
+            self.ifl_write(words)
+        for p in reversed(v):
+            if p:
+                self.ivar(p)
+        return n
+
+    def ifl_write(self, words):
+        m = self.m
+        p = gen.IFLIST + m[gen.D33143 + 67]
+        for i, w in enumerate(words):
+            m[p + i] = w
+        m[gen.D33143 + 67] += len(words)
+
+    def ivar(self, ptr):
+        """the index of a variable in the list of index variables"""
+        if ptr not in self.ivars:
+            self.ivars.append(ptr)
+        return self.ivars.index(ptr)
+
+    def cell(self, text, kind=0o100010):
+        """the operand word of a generated name"""
+        if text not in self.cells:
+            self.cells[text] = self.name_cell(text)
+        return self.cells[text] << 33 | kind
+
     def begin(self, label):
         """the start of an executable statement"""
+        self.declarations()
         if not self.entered:
             self.entered = True
             name = self.unit_name
@@ -238,6 +483,10 @@ class Front:
         self.put(0, 0o72)
         if label:
             self.put(self.label(label), 0o54)
+        # the non-standard subscripts of the statement
+        code, self.nst_code, self.nst = self.nst_code, [], 0
+        for toks in code:
+            self.expression(toks)
 
     def statement(self, label, text):
         done = self.unit_statement(label, text)
@@ -276,6 +525,18 @@ class Front:
         tcell = 0
         self.put(params[0], 0o110)
         self.put(var, 0o100)
+        # a DO variable with step 1 goes to the front of the list of index
+        # variables; but a new one is found "at place 0" (as in the original:
+        # it stays at the end, and the front grows only while it is empty)
+        v = self.ivars
+        if var >> 33 in v:
+            i = v.index(var >> 33)
+        else:
+            v.append(var >> 33)
+            i = 0
+        if step in (None, '1') and i >= self.front:
+            v[i], v[self.front] = v[self.front], v[i]
+            self.front += 1
         if params[0] & 0o37 != 1 or params[1] & 0o37 != 1:
             # the loop starts with the test
             tcell = self.name_cell('*T%04d' % self.ndo)
@@ -305,11 +566,23 @@ class Front:
             return
         if self.kind is None:
             raise Error('no PROGRAM statement')
-        mt = re.match(r'(INTEGER|REAL|LOGICAL)(.*)$', text)
+        mt = re.match(r'(INTEGER|REAL|LOGICAL|DIMENSION)(.*)$', text)
         if mt and '=' not in text:
-            for n in mt.group(2).split(','):
-                self.declare(n, {'INTEGER': I, 'REAL': R, 'LOGICAL': L}[mt.group(1)])
+            typ = {'INTEGER': I, 'REAL': R, 'LOGICAL': L, 'DIMENSION': None}[mt.group(1)]
+            for n in split_top(mt.group(2)):
+                self.dimension(n, typ)
             return
+        if text.startswith('EQUIVALENCE(') and '=' not in text:
+            if self.decl_done:
+                raise Error('EQUIVALENCE after an executable statement')   # 21014
+            self.equivs.append(text[11:])
+            return
+        if re.match(r'DATA[A-Z][A-Z0-9]*(\([0-9,]*\))?[,/]', text):
+            if self.decl_done:
+                raise Error('DATA after an executable statement')      # 21014
+            self.datas.append(unblank(self.raw)[4:])
+            return
+        self.declarations()
         if text == 'END':
             if not self.jumped:
                 if not self.entered:
@@ -364,7 +637,7 @@ class Front:
                 for i in range(2, len(toks) - 1):
                     t = toks[i]
                     if t & 0o37 == 0o10 and not t & 0o77777777427 and t not in ints \
-                            and not self.m[ATTR + (t >> 33) - gen.DIMENLIS & 0o77777] \
+                            and not self.is_param(t >> 33) \
                             and toks[i - 1] in (LPAR, COMMA) and toks[i + 1] in (RPAR, COMMA):
                         ints.append(t)
                 self.expression(toks)
@@ -386,6 +659,239 @@ class Front:
             self.jumped = True
         else:
             raise Error('unknown statement: ' + text)
+
+    # ---- EQUIVALENCE and DATA (CBPROC of CBDPR) ------------------------
+    def declarations(self):
+        """at the first executable statement: the equivalences, memory for
+        the arrays and equivalence classes, the EQUs, the data"""
+        if self.decl_done:
+            return
+        self.decl_done = True
+        for text in self.equivs:
+            self.equivalence(text)
+        self.bss()
+        self.equs()
+        for text in self.datas:
+            self.data(text)
+
+    def equivalence(self, text):
+        """(a, b, ...), ... (CBPRCZ *0230B)"""
+        for group in split_top(text):
+            if not (group.startswith('(') and group.endswith(')')):
+                raise Error('error in EQUIVALENCE')             # 22023
+            items = split_top(group[1:-1])
+            if len(items) < 2:
+                raise Error('error in EQUIVALENCE')             # 22023
+            first = self.eq_item(items[0])
+            for item in items[1:]:
+                first = self.eq_merge(first, self.eq_item(item))
+
+    def eq_item(self, text):
+        """a variable or an array element with one constant subscript ->
+        [root of its class, its offset in the root, size of the class]
+        (*0416B)"""
+        mt = re.fullmatch(r'([A-Z][A-Z0-9]*)(?:\((\d+)\))?', text)
+        if not mt:
+            raise Error('error in EQUIVALENCE: ' + text)        # 22023
+        name, sub = mt.groups()
+        off = 0
+        if sub is not None:
+            if name not in self.arrays:
+                raise Error('no dimensions for ' + name)        # 22035
+            off = int(sub) - 1
+        s = self.syms.get(name)
+        if s is None:
+            s = self.declare(name)
+            s.declared = False
+        if s.param:
+            raise Error('a parameter in EQUIVALENCE')           # 22026
+        s.needmem = s.bss = True
+        e = self.eq.get(name)
+        if e is None:
+            e = self.eq[name] = Eq(s, self.size(s))
+            self.eqlist.append(e)
+            return [e, off, e.size]
+        while e.parent:
+            off += e.off
+            e = e.parent
+        return [e, off, e.size]
+
+    def eq_merge(self, a, b):
+        """two equivalenced places: the class of b goes into that of a, or
+        the other way when b is further from the start of its class (or as
+        far, and its class is larger); returns the place in the joint class"""
+        if a[0] is b[0]:
+            if a[1] != b[1]:
+                raise Error('a variable equivalenced to itself + n')    # 22047
+            # the original makes the root its own child and loops in CBEQU
+            raise NotImplementedError('an equivalence repeated')
+        if a[1] == b[1]:
+            if a[2] < b[2]:
+                a, b = b, a
+            d = 0
+        else:
+            if a[1] < b[1]:
+                a, b = b, a
+            d = a[1] - b[1]
+            if b[2] + d >= a[2]:
+                a[2] = a[0].size = b[2] + d
+        r = b[0]
+        r.parent, r.off = a[0], d
+        r.sym.child = True
+        return a
+
+    def bss(self):
+        """memory for the arrays and the roots of equivalence classes, in
+        the order of the list of declared names (CBBSS)"""
+        for s in sorted(self.syms.values(), key=lambda s: s.ptr):
+            if not gen.DIMENLIS <= s.ptr < gen.DIMENLIS + self.ndecl:
+                continue
+            if s.child or not s.needmem:
+                continue
+            e = self.eq.get(s.name)
+            size = e.size if e else self.size(s)
+            self.put(s.ptr << 33 | size << 18 | 0o10, 0o57)
+
+    def equs(self):
+        """name EQU name+offset for every variable equivalenced to another
+        one, after the one it refers to (CBEQU: a pass over the table,
+        repeated from the first one put off)"""
+        start = 0
+        while True:
+            later = None
+            for i in range(start, len(self.eqlist)):
+                e = self.eqlist[i]
+                if not e.parent or e.done:
+                    continue
+                p = e.parent
+                if p.parent and not p.done:
+                    if later is None:
+                        later = i
+                    continue
+                self.put(p.sym.ptr << 33 | (e.off & 0o77777) << 18 | 0o10,
+                         e.sym.ptr << 24 | 0o55)
+                e.done = True
+            if later is None:
+                return
+            start = later
+
+    def data(self, text):
+        """names/constants/, ... (CBPRCZ *1134B)"""
+        pos = 0
+        while pos < len(text):
+            j = text.index('/', pos)
+            names = split_top(text[pos:j])
+            try:
+                values, pos = self.data_values(text, j + 1)
+            except (IndexError, ValueError):
+                raise Error('bad DATA: ' + text)
+            for name in names:
+                self.data_item(name, values)
+            if values:
+                raise Error('more constants than variables in DATA')
+            if text[pos:pos + 1] == ',':
+                pos += 1
+
+    def data_values(self, text, pos):
+        """the constants up to the closing '/' -> [[word, type, repeat]],
+        the place after the '/'"""
+        out = []
+        while True:
+            rep = 1
+            mt = re.match(r'(\d+)\*', text[pos:])
+            if mt:
+                rep = int(mt.group(1))
+                pos += mt.end()
+            mt = re.match(r"(\d+)H", text[pos:])
+            if mt:
+                n = int(mt.group(1))
+                pos += mt.end()
+                out.append([text_word(text[pos:pos + n]), R, rep])
+                pos += n
+            elif text[pos] == "'":
+                k = text.index("'", pos + 1)
+                out.append([text_word(text[pos + 1:k]), R, rep])
+                pos = k + 1
+            else:
+                mt = re.match(r'\.(TRUE|FALSE)\.|([0-7]+)B|([-+]?)(\d+(?:\.\d*)?'
+                              r'(?:E[-+]?\d+)?|\.\d+(?:E[-+]?\d+)?)', text[pos:])
+                if not mt:
+                    raise Error('not a constant in DATA: ' + text[pos:])     # 22044
+                pos += mt.end()
+                if mt.group(1):
+                    out.append([int(mt.group(1) == 'TRUE'), L, rep])
+                elif mt.group(2):
+                    out.append([int(mt.group(2), 8), R, rep])
+                else:
+                    sign, num = mt.group(3), mt.group(4)
+                    if re.fullmatch(r'\d+', num):
+                        out.append([integer(-int(num) if sign == '-' else int(num)),
+                                    R if sign else I, rep])
+                    else:
+                        mant, _, exp = num.partition('E')
+                        x = Fraction(mant) * Fraction(10) ** int(exp or 0)
+                        out.append([signed_real(-x if sign == '-' else x), R, rep])
+            if text[pos] == '/':
+                return out, pos + 1
+            if text[pos] != ',':
+                raise Error('bad DATA: ' + text)                # 22032
+            pos += 1
+
+    def data_item(self, text, values):
+        """one variable, array or element of DATA and its values: SECT
+        name+offset (memory already given) or SECT *, LABEL name (a cell in
+        the data part), OCT value [REP n] ..., SECT * (*1157B)"""
+        mt = re.fullmatch(r'([A-Z][A-Z0-9]*)(?:\(([0-9,]+)\))?', text)
+        if not mt:
+            raise NotImplementedError('DATA item ' + text)
+        name, subs = mt.groups()
+        s = self.syms.get(name)
+        star = self.cell('*', 0o10)
+        if s is not None and s.param:
+            raise Error('DATA for a parameter')                 # 22036
+        if subs is not None:
+            if name not in self.arrays:
+                raise Error('no dimensions for ' + name)        # 22035
+            off, mult = 0, 1
+            dims = self.arrays[name].dims
+            for i, k in enumerate(subs.split(',')):
+                off += (int(k) - 1) * mult
+                if i < len(dims):
+                    mult *= dims[i]
+            count = 1
+            self.put(s.ptr << 33 | (off & 0o77777) << 18 | 0o10, 0o52)
+        elif s is not None and (s.needmem or s.datad):
+            count = self.size(s)
+            self.put(s.ptr << 33 | 0o10, 0o52)
+        else:
+            if s is None:
+                s = self.declare(name)
+                s.declared = False
+            s.bss = True
+            count = 1
+            self.put(star, 0o52)
+            self.put(s.ptr << 33 | 0o10, 0o54)
+        s.datad = True
+        if not self.data_cell:
+            self.data_cell = self.name_cell('')
+        while count:
+            if not values:
+                raise Error('fewer constants than variables in DATA')
+            v = values[0]
+            n = min(count, v[2])
+            self.m[self.data_cell] = v[0]
+            self.put(self.data_cell << 24 | v[1] << 15 | 1, 0o53)
+            if n > 1:
+                self.put(0, n << 24 | 0o61)
+            count -= n
+            v[2] -= n
+            if not v[2]:
+                values.pop(0)
+        self.put(star, 0o52)
+
+    def is_param(self, ptr):
+        i = ptr - gen.DIMENLIS
+        return 0 <= i < self.ndecl and self.m[ATTR + i] != 0
 
     def relcn(self):
         if not self.relcn_cell:
@@ -419,9 +925,7 @@ class Front:
             end = self.load(toks)
             self.lg.run(TOKENS + 2, end, yes, no)
             self.put(yes, 0o2000000000000054)
-            self.pool += 1
-            m[self.pool - 1] = 1
-            self.put((self.pool - 1) << 24 | 1, 0o110)
+            self.put(self.const_word(1, I), 0o110)
             self.put(no | 1 << 18, 0o30)
             self.put(no, 0o2000000000000054)
             self.put(0, 0o110)
@@ -434,11 +938,11 @@ class Front:
             return
         # a constant, maybe with a minus, goes without the expression code
         if n in (3, 4) and toks[1] == ASSIGN and toks[-1] & 0o37 == 1 \
-                and (n == 3 or toks[2] == MINUS) and toks[0] & 0o37 == 0o10:
+                and (n == 3 or toks[2] == MINUS) and toks[0] & 0o17 == 0o10:
             lt, rt = toks[0] >> 15 & 7, toks[-1] >> 15 & 7
             m[gen.D33143 + 222] = lt if rt < lt and lt != 4 else rt
             self.put(toks[-1], n - 3)
-            self.put(toks[0], 0o12)
+            self.put(toks[0] & ~0o20, 0o12)
             return
         self.expression(toks)
 
@@ -451,48 +955,385 @@ class Front:
             put(gen.DIMENLIS << 33 | 1 << 18 | 0o10, 0o57)
         for t in reversed(list(self.functions.values())):
             put(t >> 33 << 33 | 0o10, 0o45)
+        self.index_routines()
         for s in self.params:
             put(s.ptr << 33 | 1 << 18 | 0o100010, 0o57)
         put(self.special('*BEGIN'), 0o54)
         put(0, 0o700001000000144)
         put(0, 0o1600001200000144)
         put(self.name_cell('*C'), 0o710002400000074)
-        for s in reversed(self.params):
-            put(s.ptr, 0o10010100000074)
+        n = len(self.params)
+        if n >= 6:              # the addresses of the parameters stored by a loop
+            put(0, 0o11 << 42 | n << 24 | 0o24)
+            put(0, gen.B47 | 0o11 << 42 | 0o77777 << 24 | 0o25)
+            put(0, 0o11 << 42 | 0o22)
+            put(gen.DIMENLIS + 1, 0o10010100000074)
+            put(self.cell('*') >> 33 | 0o77777 << 24, 0o1110003500000074)
+        else:
+            for s in reversed(self.params):
+                put(s.ptr, 0o10010100000074)
         put(0, 0o1500000143)
         nreg = self.m[gen.D33143 + 62]
-        for r in range(1, nreg + 1):
-            put(0, r << 24 | 0o143)
+        if nreg >= 4:           # the index registers saved by a loop
+            put(0, 0o11 << 42 | (1 - nreg & 0o77777) << 24 | 0o24)
+            put(0, gen.B47 | 0o11 << 42 | nreg << 24 | 0o143)
+            put(self.cell('*') >> 33, 0o1110003700000074)
+        else:
+            for r in range(1, nreg + 1):
+                put(0, r << 24 | 0o143)
         put(0, 0o1000000143)
         put(0, 0o143)
+        if self.iterms:
+            self.coef_cells()
         put(self.relcn(), 0o5510003100000074)
         put(0, 0o300000137)
+        self.index_cells()
         put(0, 0o200000137)
         put(0, 0o1200000000000030)
         put(self.special('*END'), 0o54)
         put(0, 0o141)
-        put(0, 0o700000141)
-        for r in range(nreg, 0, -1):
-            put(0, r << 24 | 0o141)
+        if nreg >= 6:           # and restored by a loop
+            put(0, 0o1100000700000024)
+            put(0, 0o3107777700000025)
+            put(0, 0o1100000100000141)
+            put(self.cell('*') >> 33 | 0o77777 << 24, 0o1110003500000074)
+        else:
+            put(0, 0o700000141)
+            for r in range(nreg, 0, -1):
+                put(0, r << 24 | 0o141)
         put(0, 0o1000000141)
         if self.kind == 'FUNCTION':
             put(self.special('*VALUE'), 0o22)
             put(0, 0o103)
         put(0, 0o1000000000000030)
+        if self.temp_used:
+            put(self.cell('*TEMP', 0o10) | 1 << 18, 0o57)
         put(self.special('*LABEL'), 0o54)
         self.g.label = 0        # the last label is never written
         self.g.finish()
+
+    def index_routines(self):
+        """ENDPRO: the cells *Innnn of the linear forms of subscripts and the
+        routines *Unnnn that update them when a variable changes (and *Pnnnn
+        for a step of 1 of a DO variable)"""
+        put = self.put
+        # a form of one variable with coefficient 1 is that variable itself
+        forms = self.cforms = [f for f in self.forms if f.cell()]
+        if not forms:
+            return
+        star = self.cell('*')
+        for f in forms:
+            put(star, 0o52)
+            put(self.cell('*I%04d' % f.n), 0o54)
+            put(self.const_word(integer(0), I), 0o53)
+            put(star, 0o52)
+        put(self.cell('I*MUI*'), gen.B47 | 0o45)
+        # variables that no cell depends on drop out of the list
+        used = {p for f in forms for p in f.variables()}
+        names = [self.m[p] if p in used else text_word('*CALLC') for p in self.ivars]
+        # formal parameters may change in a call: *RELCN updates them
+        relcn = False
+        for i in range(self.ndecl - 1, -1, -1):
+            p = gen.DIMENLIS + i
+            if self.is_param(p) and self.m[p] in names:
+                if not relcn:
+                    relcn = True
+                    put(self.relcn() << 33 | 0o100010, 0o54)
+                    put(0, 0o1500001400000144)
+                put(p << 33 | 0o100010, 0o73)
+        if relcn:
+            put(0, 0o1400000000000030)
+            names.append(text_word('*RELCN'))
+        self.inames = names
+        # the terms: [variable, coefficient, form, tag, m1, m2]; the tag
+        # says that the coefficient is in a cell: 1 *Knnnn, 2-3 *Mnnnn
+        terms = []
+        for f in forms:
+            if f.kind <= 3:
+                terms += [[names.index(self.m[p]), coef, f.n, 0, 0, 0] for p, coef in f.terms]
+                continue
+            c1, c2, c3 = f.c
+            v1, v2, v3 = f.v
+            d1, d2 = f.d
+            if f.kind == 5:
+                c2, c3 = c2 * d1, c3 * d1
+            elif f.kind == 6:
+                c3 *= d2
+            tag1 = 0 if f.kind == 5 else 1
+            tag2 = 3 if f.kind == 7 else 2
+            for p, c, tag, m1, m2 in ((v1, c1, 0, d1, d2), (v2, c2, tag1, d1, d2),
+                                      (v3, c3, tag2, d2, d1) if f.kind == 6
+                                      else (v3, c3, tag2, d1, d2)):
+                if p:
+                    terms.append([names.index(self.m[p]), c, f.n, tag, m1, m2])
+        # sorted by the variable (the selection sort of the original, which
+        # is not stable: it decides the order of the updates)
+        for last in range(len(terms) - 1, 0, -1):
+            best = last
+            for j in range(last - 1, -1, -1):
+                if terms[j][0] > terms[best][0]:
+                    best = j
+            terms[best], terms[last] = terms[last], terms[best]
+        self.iterms = list(terms)
+        terms.append([0o7777777, 0, 0, 0, 0, 0])
+        i = 0
+        while i < len(terms) - 1:
+            vi = terms[i][0]
+            group = []
+            while terms[i][0] == vi:
+                group.append(i)
+                i += 1
+            self.routine(vi, group, terms)
+        self.update = [word_text(w).strip() for w in names]
+
+    def coef_cell(self, term):
+        return self.cell(('*K%04d' if term[3] == 1 else '*M%04d') % term[2])
+
+    def routine(self, vi, group, terms):
+        put = self.put
+        ncell = self.cell('*N%04d' % vi)
+        var = self.ivars[vi] << 33 | 0o100010
+        temp = self.cell('*TEMP')
+        if vi < self.front:
+            pcell = self.cell('*P%04d' % vi)
+            put(pcell, 0o54)
+            for j in group:
+                icell = self.cell('*I%04d' % terms[j][2])
+                if terms[j][3]:
+                    put(self.coef_cell(terms[j]), 0o110)
+                else:
+                    put(self.const_word(integer(terms[j][1]), I), 0o110)
+                put(icell, 0o104)
+                put(icell, 0o100)
+            put(self.const_word(integer(1), I), 0o110)
+            put(ncell, 0o104)
+            put(ncell, 0o100)
+            put(0, 0o1500000000000030)
+            put(pcell, gen.B47 | 0o30)
+        put(ncell | 1 << 18, 0o57)
+        put(self.cell('*U%04d' % vi), 0o54)
+        put(ncell, 0o105)       # the difference of the new and old values
+        put(ncell, 0o100)
+        in_temp = False         # the product is in *TEMP
+        diff = True             # the difference is in the accumulator
+        for j in group:
+            coef, n, tag = terms[j][1], terms[j][2], terms[j][3]
+            same = terms[j + 1][:2] == terms[j][:2] and not tag and not terms[j + 1][3]
+            if coef != 1 or tag:
+                if in_temp:
+                    put(temp, 0o110)
+                    self.temp_used = True
+                    in_temp = same
+                else:
+                    if not diff:
+                        put(ncell, 0o110)
+                    if tag:
+                        put(self.coef_cell(terms[j]), 0o103)
+                    else:
+                        put(self.const_word(integer(coef), I), 0o103)
+                    put(self.cells['I*MUI*'], 0o1610003100000074)
+                    in_temp = same
+                    if same:
+                        put(temp, 0o100)
+            else:
+                if not diff:
+                    put(ncell, 0o110)
+                in_temp = False
+            icell = self.cell('*I%04d' % n)
+            put(icell, 0o104)
+            put(icell, 0o100)
+            diff = False
+        put(var, 0o110)
+        put(ncell, 0o100)
+        put(0, 0o1500000000000030)
+
+    # ---- the cells of arrays with variable dimensions, at the entry -----
+    def mul(self, p):
+        """XTS p; VJM I*MUI* (a dimension or a cell)"""
+        self.put(p, 0o103)
+        self.put(self.cells['I*MUI*'], 0o1610003100000074)
+
+    def dim(self, d):
+        return d << 33 | 0o100010
+
+    def coef_cells(self):
+        """*Knnnn and *Mnnnn: the coefficients that hold dimensions"""
+        put = self.put
+        first = True
+        for t in reversed(self.iterms):
+            vi, c, n, tag, m1, m2 = t
+            if not tag:
+                continue
+            if first:
+                first = False
+                put(0, 0o300000137)
+            if tag == 1:
+                if c == 1:
+                    put(self.dim(m1), 0o110)
+                else:
+                    put(self.const_word(integer(c), I), 0o110)
+                    self.mul(self.dim(m1))
+            else:
+                if c == 1:
+                    put(self.dim(m2), 0o110)
+                else:
+                    put(self.const_word(integer(c), I), 0o110)
+                    self.mul(self.dim(m2))
+                if tag == 3:
+                    self.mul(self.dim(m1))
+            cell = self.coef_cell(t)
+            put(cell, 0o100)
+            put(cell | 1 << 18, 0o57)
+
+    def index_cells(self):
+        """the initial values of the cells *Innnn of the forms with variable
+        dimensions, from the last values of the variables (*Nnnnn)"""
+        put = self.put
+        for f in self.cforms:
+            if f.kind <= 3:
+                continue
+            c1, c2, c3 = f.c
+            d1, d2 = f.d
+            if f.kind == 5:
+                c2, c3 = c2 * d1, c3 * d1
+            elif f.kind == 6:
+                c3 *= d2
+            nv = [self.cell('*N%04d' % self.inames.index(self.m[p])) if p else 0
+                  for p in f.v]
+            A, B = f.A, f.B
+            t1, t2, t3 = (c1 and nv[0]), (c2 and nv[1]), (c3 and nv[2])
+
+            def const(x, op):
+                put(self.const_word(integer(x), I), op)
+
+            def load(c, v):
+                if not c or not v:
+                    put(0, 0o110)
+                elif c == 1:
+                    put(v, 0o110)
+                else:
+                    const(c, 0o110)
+                    self.mul(v)
+
+            def add(c, v):
+                if not c or not v:
+                    return
+                if c == 1:
+                    put(v, 0o104)
+                else:
+                    const(c, 0o103)
+                    self.mul(v)
+                    put(0, 0o17 << 42 | 0o104)
+
+            def addc(x):
+                if x:
+                    const(x, 0o104)
+
+            icell = self.cell('*I%04d' % f.n)
+
+            def finish(times):
+                # * d1 (or d2), + c1*v1, -> *Innnn
+                self.mul(self.dim(times))
+                add(c1, nv[0])
+                put(icell, 0o100)
+
+            def only_first():
+                if t1:
+                    load(c1, nv[0])
+                    put(icell, 0o100)
+
+            def two():                  # kind 4 (*1012B)
+                if t2:
+                    load(c2, nv[1])
+                    addc(A)
+                elif A:
+                    const(A, 0o110)
+                else:
+                    only_first()
+                    return
+                finish(d1)
+
+            if f.kind == 4:
+                two()
+            elif f.kind == 5:           # *1037B
+                if t3 or B * d1:
+                    if t3:
+                        load(c3, nv[2])
+                        addc(B * d1)
+                    else:
+                        const(B * d1, 0o110)
+                    self.mul(self.dim(d2))
+                    add(c2, nv[1])
+                elif t2:
+                    load(c2, nv[1])
+                else:
+                    only_first()
+                    continue
+                add(c1, nv[0])
+                put(icell, 0o100)
+            elif f.kind == 6:           # *1061B
+                k = B * d2 + A
+                if t2:
+                    load(c2, nv[1])
+                    add(c3, nv[2])
+                    addc(k)
+                elif t3:
+                    load(c3, nv[2])
+                    addc(k)
+                elif k:
+                    const(k, 0o110)
+                else:
+                    only_first()
+                    continue
+                finish(d1)
+            else:                       # kind 7
+                if t3:
+                    load(c3, nv[2])
+                    addc(B)
+                elif B:
+                    const(B, 0o110)
+                else:
+                    two()
+                    continue
+                self.mul(self.dim(d2))
+                add(c2, nv[1])
+                addc(A)
+                finish(d1)
 
     def text(self):
         g = self.g
         implicit = [n for n in self.implicit if self.syms[n].ptr in self.assigned]
         unit = Unit(main=self.kind == 'PROGRAM', implicit=implicit,
-                    temps=self.m[gen.D33143 + 55])
+                    temps=self.m[gen.D33143 + 55], update=self.update)
         return render(parse_items(g.decl[:-1]), parse_items(g.out[:-1]), unit)
 
 
+def closing(text, pos):
+    """the place of the parenthesis that closes the one at pos"""
+    depth = 0
+    for i in range(pos, len(text)):
+        depth += (text[i] == '(') - (text[i] == ')')
+        if depth == 0:
+            return i
+    raise Error('unbalanced parentheses: ' + text)
+
+
+def split_top(text):
+    """text split at the commas outside parentheses"""
+    out, depth, cur = [], 0, ''
+    for c in text:
+        if c == ',' and depth == 0:
+            out.append(cur)
+            cur = ''
+            continue
+        depth += (c == '(') - (c == ')')
+        cur += c
+    return out + [cur]
+
+
 def statements(lines):
-    """the cards of one program unit -> (label, text without blanks)"""
+    """the cards of one program unit -> (label, text without blanks, text
+    as it is: columns 7-72 of every card)"""
     cur = None
     for l in lines:
         l = l.rstrip('\n').upper()[:72]
@@ -500,21 +1341,46 @@ def statements(lines):
             continue
         if len(l) > 5 and l[5] not in ' 0' and cur:
             cur[1] += l[6:].replace(' ', '')
+            cur[2] += l[6:].ljust(66)
             continue
         if cur:
             yield tuple(cur)
-        cur = [l[:5].strip(), l[6:].replace(' ', '')]
+        cur = [l[:5].strip(), l[6:].replace(' ', ''), l[6:].ljust(66)]
     if cur:
         yield tuple(cur)
+
+
+def unblank(raw):
+    """the text of a statement without blanks, but those in Hollerith
+    constants nH... and in '...' kept"""
+    out, i = '', 0
+    while i < len(raw):
+        c = raw[i]
+        if c == "'":
+            k = raw.find("'", i + 1)
+            k = len(raw) if k < 0 else k + 1
+            out += raw[i:k]
+            i = k
+            continue
+        if c == 'H' and re.search(r'(^|[^A-Z0-9])\d+$', out):
+            n = int(re.search(r'\d+$', out).group())
+            out += raw[i:i + n + 1]
+            i += n + 1
+            continue
+        if c != ' ':
+            out += c
+        i += 1
+    return out
 
 
 def compile_text(src):
     """Fortran text -> lines of Madlen text"""
     out = []
     f = None
-    for label, text in statements(src.splitlines()):
+    for label, text, raw in statements(src.splitlines()):
         if f is None:
             f = Front()
+        f.raw = raw
         if f.statement(label, text):
             f.epilogue()
             out += f.text()

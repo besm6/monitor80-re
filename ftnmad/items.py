@@ -38,7 +38,8 @@ SHORT = {   # short machine opcodes (item operation = 0100 + opcode)
 }
 LONG = {
     0o22: 'UTC', 0o23: 'WTC', 0o24: 'VTM', 0o25: 'UTM', 0o26: 'UZA',
-    0o27: 'U1A', 0o30: 'UJ', 0o31: 'VJM', 0o37: 'VLM',
+    0o27: 'U1A', 0o30: 'UJ', 0o31: 'VJM', 0o34: 'VZM', 0o35: 'V1M',
+    0o37: 'VLM',
 }
 
 
@@ -55,13 +56,14 @@ def word_text(w):
 
 
 class Item:
-    __slots__ = ('op', 'reg', 'off', 'name', 'lit', 'lit2', 'var', 'align', 'spec')
+    __slots__ = ('op', 'reg', 'off', 'name', 'lit', 'lit2', 'var', 'align', 'spec', 'raw')
 
     def __init__(self, op, name=None, off=0, reg=0, lit=None, var=False,
                  align=False, spec=False):
         self.op, self.name, self.off, self.reg = op, name, off & 0o77777, reg
         self.lit, self.var, self.align, self.spec = lit, var, align, spec
         self.lit2 = None            # the second word of a double literal
+        self.raw = None             # the name word as it was (OCT: a value)
 
     def words(self):
         n = 2 if self.lit2 is not None else \
@@ -98,6 +100,7 @@ def parse_items(words):
                 it.lit2 = words[i + 1]
         elif n:
             it.name = word_text(words[i])
+            it.raw = words[i]
             if n == 2:              # EQU: name, then what it is equal to
                 it.lit2 = word_text(words[i + 1])
         i += n
@@ -155,7 +158,9 @@ def render(decl, out, unit):
     head, subp, data, code, bss = [], [], [], [], []
     name = None
 
-    arrays = []         # DATA for arrays: [name, [values], repeat]
+    # DATA for memory given by BSS: [name, offset, groups]; a group is
+    # [[values], repeat]: REP n repeats the last value only
+    arrays = []
 
     def split(items, dest):
         sect = False
@@ -163,13 +168,18 @@ def render(decl, out, unit):
             if it.op == SECT:
                 sect = not sect
                 if sect and it.name != '*':
-                    arrays.append([it.name, [], 1])
+                    arrays.append([it.name, signed(it.off), [[[], 1]]])
                     sect = 2
             elif sect == 2:
+                groups = arrays[-1][2]
                 if it.op == OCT:
-                    arrays[-1][1].append(it)
+                    if groups[-1][1] > 1:
+                        groups.append([[], 1])
+                    groups[-1][0].append(it)
                 elif it.op == 0o61:
-                    arrays[-1][2] = it.off
+                    if len(groups[-1][0]) > 1:
+                        groups.append([[groups[-1][0].pop()], 1])
+                    groups[-1][1] = it.off
             elif it.op == SUBP:
                 if it.name not in subp:
                     subp.append(it.name)
@@ -199,11 +209,16 @@ def render(decl, out, unit):
 
     nerr, ncer = unit.temps, unit.commons
     body = []
+    keep = False
     for it in code:
         if it.spec:
-            if it.name == '*RELCN' or it.name not in unit.update:
+            # kept when the variable has an update routine (or the unit has
+            # *RELCN); an item without a name goes with the one before it
+            if it.name:
+                keep = it.name in unit.update
+            if not keep:
                 continue
-            if it.op == 0o31:
+            if it.op == 0o31 and it.name != '*RELCN':
                 it = Item(0o31, '*U%04d' % unit.update.index(it.name), reg=it.reg)
         if it.name == 'ERASER':
             nerr = max(nerr, it.off + 1)
@@ -234,7 +249,7 @@ def render(decl, out, unit):
                 lines.append(line(it.name, op='BSS'))
             continue
         if it.op == OCT:
-            v = it.lit if it.lit is not None else text_word(it.name)
+            v = it.lit if it.lit is not None else it.raw
             lines.append(line(label, op='OCT',
                               operand='%08o %08o' % (v >> 24, v & 0o77777777)))
             label = ''
@@ -251,7 +266,7 @@ def render(decl, out, unit):
             more = ' ' * 21 + '%08o %08o' % (it.lit2 >> 24, it.lit2 & 0o77777777)
         elif it.lit is not None:
             operand = octal_lit(it.lit)
-        elif it.name is not None:
+        elif it.name:
             off = signed(it.off)
             operand = it.name + ('+%d' % off if off > 0 else '%d' % off if off else '')
         else:
@@ -273,21 +288,25 @@ def render(decl, out, unit):
         if it.off != 1:
             lines.append(line(it.name, op='BSS', operand=str(it.off)))
     if arrays:
-        # the values, then where they go: n words from *DATA, repeated
-        # (this part was seen for one form of DATA only)
+        # the values, then where they go: n words from *DATA+k to the
+        # variable, repeated
         lines.append(line(op='DATA'))
         lines.append(line('*DATA', op='BSS'))
         for a in arrays:
-            for it in a[1]:
-                v = it.lit if it.lit is not None else text_word(it.name)
-                lines.append(line(op='OCT', operand='%08o %08o'
-                                  % (v >> 24, v & 0o77777777)))
-        off = 0
-        for a in arrays:
-            lines.append(' %8s %3d, SET ,  *DATA%s'
-                         % ('', len(a[1]), '+%d' % off if off else ''))
-            lines.append(' %8s %3d,     ,  %s' % ('', a[2], a[0]))
-            off += len(a[1])
+            for values, _ in a[2]:
+                for it in values:
+                    v = it.lit if it.lit is not None else it.raw
+                    lines.append(line(op='OCT', operand='%08o %08o'
+                                      % (v >> 24, v & 0o77777777)))
+        k = 0
+        for name_, off, groups in arrays:
+            for values, times in groups:
+                lines.append(' %8s %3d, SET ,  *DATA%s'
+                             % ('', len(values), '+%d' % k if k else ''))
+                lines.append(' %8s %3d,     ,  %s%s'
+                             % ('', times, name_, '+%d' % off if off else ''))
+                k += len(values)
+                off += len(values) * times
         lines.append(' %8s %3s, END ,  %s' % ('', '', name))
     else:
         lines.append(line(op='END', operand=name))

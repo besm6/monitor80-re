@@ -18,15 +18,23 @@ def check(fn, show=True):
     d, o = items.parse_items(decl[:-1]), items.parse_items(out[:-1])
     # the variables with update routines are not in the lists: the routine
     # *Unnnn ends with XTA var, ATX *Nnnnn
+    # (the number nnnn is the place in the list of index variables; places
+    # without a routine are filled, *RELCN goes last when it is there)
     names = []
     for i, it in enumerate(o):
         if it.op == items.LABEL and it.name.startswith('*U'):
             j = i + 1
             while not (o[j].op == 0o30 and o[j].reg == 13):
-                if o[j].op == 0o110:
+                if o[j].op == 0o110 and o[j].name:
+                    v = o[j].name
+                elif o[j].op == 0o23:       # WTC param; XTA
                     v = o[j].name
                 j += 1
-            names.append(v)
+            k = int(it.name[2:])
+            names += ['*CALLC'] * (k + 1 - len(names))
+            names[k] = v
+    if any(it.op == items.LABEL and it.name == '*RELCN' for it in o):
+        names.append('*RELCN')
     # undeclared variables: BSS lines that are not in DECLIST
     declared = {it.name for it in d if it.op == items.BSS}
     impl = [l.split()[0] for l in want if ', BSS ,  1' in l
