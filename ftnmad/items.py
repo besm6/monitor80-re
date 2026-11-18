@@ -194,20 +194,45 @@ def render(decl, out, unit):
     left = 0        # words of the block not covered by its variables
     far = set()     # names in COMMON: reached by UTC
     equ = {}        # name -> the name it is equal to
+    first = False   # in the first block of BLOCK DATA
+    blockdata = False
+    sized = False   # the block has a size (not 0)
     for it in dcl + [Item(0)]:
         if left and it.op != 0o51:
-            # what equivalences add at the end of the block
-            head.append(line(op='CONT', operand='%-6s(%d)' % ('', left)))
+            # what equivalences add at the end of the block; Madlen computes
+            # it and prints a negative one (a size taken modulo 2**15 by
+            # CBCE) as 497152 + n
+            n = left if left > 0 else 497152 + left
+            if first:
+                head.append(line(op='BSS', operand=str(n)))
+            else:
+                head.append(line(op='CONT', operand='%-6s(%d)' % ('', n)))
             left = 0
         if it.op == NAME:
             name = it.name
             head.append(line(it.name, op='NAME'))
+        elif it.op == 0o50 and name is None:
+            # BLOCK DATA (no name of its own): the first block is the
+            # module, its variables are its memory
+            name = it.name
+            head.append(line('*%s*' % it.name, op='NAME'))
+            left = it.off
+            sized = left != 0
+            first = blockdata = True
         elif it.op == 0o50:
             head.append(line('*%s*' % it.name, 'LC', 'BLOCK'))
             left = it.off
+            sized = left != 0
+            first = False
+        elif it.op == 0o51 and first:
+            head.append(line(it.name, op='BSS', operand=str(it.off)))
+            left -= it.off if sized else 0
+            far.add(it.name)
         elif it.op == 0o51:
+            # a block of size 0 (modulo 2**15, see CBCE) takes the size of
+            # its variables
             head.append(line(op='CONT', operand='%-6s(%d)' % (it.name, it.off)))
-            left -= it.off
+            left -= it.off if sized else 0
             far.add(it.name)
         elif it.op == 0o55:
             off = signed(it.off)
@@ -254,8 +279,11 @@ def render(decl, out, unit):
 
     ndata = sum(1 for it in data if it.op == OCT)
     prolog = [Item(0o24, name, reg=14), Item(0o30, '*BEGIN')]
-    lines.append(line('*C', op='EQU',
-                      operand='*+%d' % (code_words(prolog + body) + ndata)))
+    if blockdata:
+        prolog = body = []
+    else:
+        lines.append(line('*C', op='EQU',
+                          operand='*+%d' % (code_words(prolog + body) + ndata)))
     if unit.main:
         lines.append(line('PROGRAM', op='ENTRY'))
     nstmt = 0
@@ -303,6 +331,10 @@ def render(decl, out, unit):
         lines.append(line('*ERR%02d' % i, op='BSS', operand='1'))
     for i in range(ncer):
         lines.append(line('*CER%02d' % i, op='BSS', operand='1'))
+    if blockdata:
+        # GLINK gives no memory to the variables of BLOCK DATA outside
+        # COMMON
+        bss = []
     for v in unit.implicit:
         lines.append(line(v, op='BSS', operand='1'))
     for it in bss:
@@ -331,7 +363,7 @@ def render(decl, out, unit):
                              % ('', times, name_, '+%d' % off if off else ''))
                 k += len(values)
                 off += len(values) * times
-        lines.append(' %8s %3s, END ,  %s' % ('', '', name))
+        lines.append((' %8s %3s, END ,  %s' % ('', '', name)).rstrip())
     else:
         lines.append(line(op='END', operand=name))
     return lines

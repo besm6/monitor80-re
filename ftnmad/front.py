@@ -577,6 +577,11 @@ class Front:
                 m[s.ptr] = text_word('*VALUE')
                 s.value = True
             return
+        if self.kind is None and re.match(r'BLOCKDATA([A-Z][A-Z0-9]*)?$', text):
+            # its name, if any, is not used: the module is named after its
+            # first block of COMMON
+            self.kind = 'BLOCK DATA'
+            return
         if self.kind is None:
             raise Error('no PROGRAM statement')
         mt = re.match(r'(INTEGER|REAL|LOGICAL|DIMENSION)(.*)$', text)
@@ -601,6 +606,10 @@ class Front:
             self.datas.append(unblank(self.raw)[4:])
             return
         self.declarations()
+        if text == 'END' and self.kind == 'BLOCK DATA':
+            return True
+        if self.kind == 'BLOCK DATA':
+            raise Error('executable statement in BLOCK DATA')
         if text == 'END':
             if not self.jumped:
                 if not self.entered:
@@ -652,12 +661,14 @@ class Front:
             self.begin(label)
             if toks:
                 toks = self.funcref(toks)
-                # integer variables among the arguments may be changed
+                # integer variables among the arguments may be changed (not
+                # whole arrays)
+                arrays = {self.syms[n].ptr for n in self.arrays}
                 ints = []
                 for i in range(2, len(toks) - 1):
                     t = toks[i]
                     if t & 0o37 == 0o10 and not t & 0o77777777427 and t not in ints \
-                            and not self.is_param(t >> 33) \
+                            and not self.is_param(t >> 33) and t >> 33 not in arrays \
                             and toks[i - 1] in (LPAR, COMMA) and toks[i + 1] in (RPAR, COMMA):
                         ints.append(t)
                 self.expression(toks)
@@ -841,10 +852,16 @@ class Front:
                 pos = sum(self.size(s) for s in items[:items.index(a[0].sym)])
                 if pos + d < 0:
                     raise Error('equivalence reorders COMMON')  # 22014
-            t = (b[2] - b[1]) - (a[2] - a[1])
+            # the offset and the size come from 15-bit fields of the table
+            # (a negative offset, a place before the root, is a large
+            # positive number here); the size goes back there modulo 2**15
+            # but stays whole in the cell of the group (D02144+134) for the
+            # next item of the same parentheses; the block is modulo 2**15
+            t = (b[2] - b[1]) - (a[2] - (a[1] & 0o77777))
             if t >= 0:
-                a[2] = a[0].size = a[2] + t
-                a[0].sym.ext |= t   # sic: the original ORs
+                a[2] += t
+                a[0].size = a[2] & 0o77777
+                a[0].sym.ext |= t & 0o77777     # sic: the original ORs
             r = b[0]
             r.parent, r.off = a[0], d
             r.sym.child = True
@@ -962,6 +979,15 @@ class Front:
                 raise Error('bad DATA: ' + text)                # 22032
             pos += 1
 
+    def in_common(self, s):
+        """is the variable in COMMON, or equivalenced into it?"""
+        if s is None:
+            return False
+        e = self.eq.get(s.name)
+        while e is not None and e.parent:
+            e = e.parent
+        return bool(s.common or e is not None and e.sym.common)
+
     def data_item(self, text, values):
         """one variable, array or element of DATA and its values: SECT
         name+offset (memory already given) or SECT *, LABEL name (a cell in
@@ -974,6 +1000,8 @@ class Front:
         star = self.cell('*', 0o10)
         if s is not None and s.param:
             raise Error('DATA for a parameter')                 # 22036
+        if self.kind == 'BLOCK DATA' and not self.in_common(s):
+            raise Error('DATA in BLOCK DATA for a variable not in COMMON')
         if subs is not None:
             if name not in self.arrays:
                 raise Error('no dimensions for ' + name)        # 22035
@@ -1149,6 +1177,11 @@ class Front:
     # ---- the end of the unit -------------------------------------------
     def epilogue(self):
         put = self.put
+        if self.kind == 'BLOCK DATA':
+            # CONTROL ends it with this item only (no code)
+            put(0o10, 0o56)
+            self.g.finish()
+            return
         if not self.entered:
             self.begin(None)
         if self.kind == 'FUNCTION':

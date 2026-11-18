@@ -36,9 +36,10 @@ def check(fn, show=True):
     if any(it.op == items.LABEL and it.name == '*RELCN' for it in o):
         names.append('*RELCN')
     # undeclared variables: BSS lines that are not in DECLIST
-    declared = {it.name for it in d if it.op == items.BSS}
+    # (nor variables of COMMON: in BLOCK DATA its first block is BSS)
+    declared = {it.name for it in d if it.op in (items.BSS, 0o51)}
     impl = [l.split()[0] for l in want if ', BSS ,  1' in l
-            and l.split()[0] not in declared and l[1] != '*']
+            and l.split()[0] not in declared and l[1] not in '* ']
     unit = items.Unit(main=any('PROGRAM :' in l for l in want), update=names,
                       implicit=impl)
     got = items.render(d, o, unit)

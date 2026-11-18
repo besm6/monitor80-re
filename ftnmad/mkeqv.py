@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mkeqv.py seed [n] [sub] [com] - a random Fortran program (stdout) with
+"""mkeqv.py seed [n] [sub] [com] [bd] - a random Fortran program (stdout) with
 EQUIVALENCE and DATA: arrays and scalars, some typed, put into classes by
 random groups (one constant subscript per item, never two items of one
 class in a group: the original loops on that), DATA for scalars, whole
@@ -10,7 +10,9 @@ With "sub" the program is a subroutine with parameters; with "com" some
 variables are in COMMON blocks (blank and named, dimensions in COMMON
 too), equivalenced with others (never two classes with COMMON, never
 before the start of a block: a model of the positions keeps the program
-free of errors 22041 and 22014), and there are CALLs.  For testing CBPRCZ/CBCE/CBBSS/CBEQU of ftnmad against the
+free of errors 22041 and 22014), and there are CALLs.  With "bd" it is
+a BLOCK DATA instead: COMMON, EQUIVALENCE, DATA only for variables in
+COMMON or equivalenced into it (all classes are), no statements.  For testing CBPRCZ/CBCE/CBBSS/CBEQU of ftnmad against the
 original (ftest.py)."""
 import random
 import sys
@@ -52,12 +54,15 @@ def card(st):
     return out + cur.rstrip() + '\n'
 
 
-def program(seed, n=20, sub=False, com=False):
+def program(seed, n=20, sub=False, com=False, bd=False):
+    com = com or bd
     rnd = random.Random(seed)
     arrays = rnd.sample(ARRAYS, rnd.randint(2, len(ARRAYS)))
     scalars = rnd.sample(SCALARS, rnd.randint(3, len(SCALARS)))
     size = dict(arrays)
-    if sub:
+    if bd:
+        s = '      BLOCK DATA\n'
+    elif sub:
         s = '      SUBROUTINE G%d(X, N, Z)\n' % seed
     else:
         s = '      PROGRAM G%d\n' % seed
@@ -128,7 +133,7 @@ def program(seed, n=20, sub=False, com=False):
     # EQUIVALENCE (they go to the list of declared names then)
     dints = [v for v in INTS if rnd.random() < 0.3]
     eints = [v for v in INTS if v not in dints and rnd.random() < 0.2]
-    for v in eints:
+    for v in eints if not bd else []:
         partner = rnd.choice([x for x in scalars if x[0] in 'IJKLMN' or x in typed]
                              or [None])
         if partner and root(partner) == partner and merge(v, 0, partner, 0):
@@ -140,6 +145,9 @@ def program(seed, n=20, sub=False, com=False):
         items = []
         for v in rnd.sample(names, len(names)):
             if items and root(v) == root(items[0][0]):
+                continue
+            if bd and not items and root(v) not in base:
+                # in BLOCK DATA a class outside COMMON is an error
                 continue
             o = rnd.randint(1, size[v]) if v in size and rnd.random() < 0.7 else 0
             if items and not merge(items[0][0], max(items[0][1] - 1, 0), v, max(o - 1, 0)):
@@ -160,7 +168,7 @@ def program(seed, n=20, sub=False, com=False):
         for _ in range(rnd.randint(1, 3)):
             items, total = [], 0
             for v in rnd.sample(names, rnd.randint(1, 3)):
-                if root(v) in given:
+                if root(v) in given or bd and root(v) not in base:
                     continue
                 given.add(root(v))
                 known.add(v)
@@ -182,6 +190,8 @@ def program(seed, n=20, sub=False, com=False):
             parts.append('%s /%s/' % (', '.join(items), ', '.join(vals)))
         if parts:
             s += card('DATA ' + ', '.join(parts))
+    if bd:
+        return s + '      END\n'
     if rnd.random() < 0.3:
         s += '      LOGICAL LG\n      DATA LG /.TRUE./\n'
     if dints:
@@ -249,4 +259,4 @@ def program(seed, n=20, sub=False, com=False):
 if __name__ == '__main__':
     a = sys.argv[1:]
     sys.stdout.write(program(int(a[0]), int(a[1]) if len(a) > 1 else 20, 'sub' in a[2:],
-                             'com' in a[2:]))
+                             'com' in a[2:], 'bd' in a[2:]))
