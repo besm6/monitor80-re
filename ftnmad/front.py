@@ -175,6 +175,7 @@ class Sym:
         self.needmem = False    # an array or in EQUIVALENCE: BSS by CBBSS
         self.child = False      # equivalenced to another one: no BSS
         self.datad = False      # given a value by DATA
+        self.external = False   # named in EXTERNAL (not a parameter)
         self.common = None      # the block of COMMON it is in
         self.cptr = 0           # its entry in the list of blocks
         self.ext = 0            # how far its equivalence class goes past
@@ -303,6 +304,8 @@ class Front:
             self.implicit.append(name)
         elif s.value:
             self.value_used = True
+        elif s.external:
+            pass
         elif s.declared and not s.param and not s.bss:
             s.bss = True
             self.pending.append(s)
@@ -314,6 +317,8 @@ class Front:
             # a parameter procedure: called through the address it holds
             # (kind 0213, no SUBP)
             return s.ptr << 33 | s.type << 15 | 0o213
+        if s is not None and s.external:
+            return s.ptr << 33 | s.type << 15 | 0o13
         t = self.functions.get(name)
         if t is None:
             if name in STDFUNC and not (s and s.declared):
@@ -791,11 +796,8 @@ class Front:
                 out += self.io_tree(part[part.index('(') + 1:-1])
             else:
                 toks = self.tokens(part)
-                mh = HOLLERITH.match(part)
-                holl = mh and (mh.end() == len(part) if mh.group(2) else
-                               mh.end() + int(mh.group(1)) == len(part))
-                if not holl and (len(toks) != 1 or toks[0] & 0o37 not in (0o10, 0o30) and
-                                 toks[0] & 0o37 < 0o10):
+                if len(toks) != 1 or toks[0] & 0o37 not in (1, 0o10, 0o30) and \
+                        toks[0] & 0o37 < 0o10:   # a constant, a variable, an element
                     raise Error('an expression in an input/output list')    # 21010
                 t = toks[0]
                 if t & 0o77437 == 0o30:
@@ -859,8 +861,8 @@ class Front:
         READ (u)    FT*641  FT*642  FT*643
         WRITE (u)   FT*721  FT*722  FT*723
         (FD*nnn, FC*nnn for double precision and complex items)"""
-        mt = re.match(r'(PRINT|PUNCH|READ)(\d+)(?:,(.*))?$', text)
-        me = re.match(r'(ENCODE|DECODE)\(([A-Z0-9]+),(\d+),([A-Z][A-Z0-9]*(?:\([^()]*\))?)\)(.*)$',
+        mt = re.match(r'(PRINT|PUNCH|READ)(\d+|[A-Z][A-Z0-9]*(?:\([^()]*\))?)(?:,(.*))?$', text)
+        me = re.match(r'(ENCODE|DECODE)\(([A-Z0-9]+),(\d+|[A-Z][A-Z0-9]*(?:\([^()]*\))?),([A-Z][A-Z0-9]*(?:\([^()]*\))?)\)(.*)$',
                       text)
         array = None
         if mt:
@@ -872,7 +874,7 @@ class Front:
             start = 'FT*611' if me.group(1) == 'ENCODE' else 'FT*531'
             item, end = 'FT*002', 'FT*003'
         else:
-            mt = re.match(r'(READ|WRITE)\(([A-Z0-9]+)(?:,(\d+))?\)(.*)$', text)
+            mt = re.match(r'(READ|WRITE)\(([A-Z0-9]+)(?:,(\d+|[A-Z][A-Z0-9]*(?:\([^()]*\))?))?\)(.*)$', text)
             unit, fmt, lst = mt.group(2), mt.group(3), mt.group(4)
             write = mt.group(1) == 'WRITE'
             if fmt:
@@ -882,6 +884,13 @@ class Front:
                 start, item, end = ('FT*721', 'FT*722', 'FT*723') if write else \
                     ('FT*641', 'FT*642', 'FT*643')
         args = [self.tokens(unit)[0]] if unit else []
+        ftok = None
+        if fmt and not fmt.isdigit():
+            # a format in an array, its element or a variable: passed like
+            # a variable
+            ftok = self.tokens(fmt)[0]
+            if ftok & 0o77437 == 0o30:
+                ftok ^= 0o20
         if array:
             t = self.tokens(array)[0]
             if t & 0o77437 == 0o30:
@@ -889,19 +898,24 @@ class Front:
         tree = self.io_tree(lst) if lst else []
         self.begin(label)
         self.m[gen.D33143 + 222] = 0    # CONTROL: the calls are of type I
-        if fmt:
+        if fmt and fmt.isdigit():
             args.append(self.format_label(fmt))
+        elif fmt:
+            args.append(ftok)
         if array:
             args.append(t)
         for t in args:
             self.put(t, 0o11)
         self.put(self.library(start), 0o10)
-        # 073 for one of them: an integer buffer of ENCODE/DECODE, not a
-        # whole array (with the bit 0100), else a unit or count in a variable
+        # 073 for one of them: the last integer format variable or buffer of
+        # ENCODE/DECODE, not a whole array (with the bit 0100), else a unit
+        # or count in a variable
         def changeable(t):
             return t & 0o37 == 0o10 and not t & 0o777427
-        if array and changeable(args[-1]) and array not in self.arrays:
-            self.put(args[-1] | 0o100, 0o73)
+        late = [t for t, name in ((ftok, fmt), (args[-1], array))
+                if name and not name.isdigit() and name not in self.arrays and changeable(t)]
+        if late:
+            self.put(late[-1] | 0o100, 0o73)
         elif unit and changeable(args[0]):
             self.put(args[0], 0o73)
         if tree:
@@ -992,6 +1006,16 @@ class Front:
             for n in split_top(mt.group(2)):
                 self.dimension(n, typ)
             return
+        if re.match(r'EXTERNAL[A-Z][A-Z0-9]*(,[A-Z][A-Z0-9]*)*$', text):
+            # a name in the list of declared ones, a procedure: SUBP for
+            # every one (used or not), passed as a variable; a parameter
+            # stays a parameter
+            for n in text[8:].split(','):
+                sym = self.declare(n)
+                if not sym.param:
+                    sym.external = True
+                    self.functions.setdefault(n, sym.ptr << 33 | 0o13)
+            return
         if text.startswith('COMMON') and '=' not in text:
             if self.decl_done:
                 raise Error('COMMON after an executable statement')    # 21014
@@ -1022,6 +1046,10 @@ class Front:
                 self.leave()
             return True
         self.jumped = False
+        mf = re.match(r'(PRINT|PUNCH|READ|(?:READ|WRITE)\([A-Z0-9]+,)([A-Z][A-Z0-9]*)', text)
+        if mf and re.match(r'(PRINT|PUNCH|READ)[A-Z][A-Z0-9]*(\([^()]*\))?(,|$)'
+                         r'|(READ|WRITE)\([A-Z0-9]+,[A-Z][A-Z0-9]*(\([^()]*\))?\)', text):
+            return self.io_statement(label, text)
         if re.match(r'(PRINT|PUNCH|READ)\d+(,|$)|(READ|WRITE)\([A-Z0-9]+(,\d+)?\)'
                     r'|(ENCODE|DECODE)\(', text):
             self.io_statement(label, text)
@@ -1029,6 +1057,13 @@ class Front:
         mt = re.match(r'([A-Z][A-Z0-9]*)\(([A-Z][A-Z0-9]*(?:,[A-Z][A-Z0-9]*)*)\)=(.*)$', text)
         if mt and not self.entered and mt.group(1) not in self.arrays:
             self.statement_function(label, mt.group(1), mt.group(2).split(','), mt.group(3))
+            return
+        mt = re.match(r'ENTRY([A-Z][A-Z0-9]*)$', text)
+        if mt and self.kind in ('SUBROUTINE', 'FUNCTION'):
+            # one more entry (without parameters: with them the original
+            # gives error 01011)
+            self.begin(label)
+            self.put(self.name_cell(mt.group(1)) << 33 | 0o10, 0o47)
             return
         if text.startswith('IF('):
             depth = 0
@@ -1125,6 +1160,21 @@ class Front:
         elif text == 'RETURN' or re.match(r'STOP[A-Z0-9]*$', text):
             self.leave(text != 'RETURN')      # (the number of STOP is not used)
             self.jumped = True
+        elif re.match(r'(REWIND|BACKSPACE|ENDFILE)[A-Z0-9]', text) and '=' not in text:
+            # REWIND u, BACKSPACE u, END FILE u: VJM *REWIN, *BACKS, *ENDFI
+            # with the unit (a constant, a variable or an element with
+            # constant subscripts) as the argument
+            mt = re.match(r'(REWIND|BACKSPACE|ENDFILE)(.*)$', text)
+            u = mt.group(2)
+            t = self.tokens(u)
+            if len(t) != 1 or t[0] & TYPE or \
+                    t[0] & 0o37 == 0o30 and t[0] & 0o77437 != 0o30:
+                raise Error('the unit must be an integer constant or variable')   # 21035
+            if t[0] & 0o77437 == 0o30:
+                t[0] ^= 0o20    # constant subscripts: a variable with an offset
+            self.put(t[0], 0o11)
+            f = self.library('*' + mt.group(1)[:5])
+            self.put(f, 0o1500000000000031)
         elif text.startswith('PAUSE'):
             # PAUSE [n], n a constant 1..32767: VJM PAUSE* with the number
             # as the argument (without it: item 103)

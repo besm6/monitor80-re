@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """mkio.py seed [n] [sub] - a random Fortran program (stdout) with PRINT,
 PUNCH, READ, WRITE (formatted and not, units constant and in variables),
-ENCODE, DECODE and
-FORMAT: lists of scalars (integer, real, double precision, in COMMON),
+ENCODE, DECODE (formats as labels and in arrays, their elements and
+integer variables) and FORMAT: lists of scalars (integer, real, double precision, in COMMON),
 array elements with constant and variable subscripts, whole arrays of 1-3
 dimensions, nested implied DO loops (constant and variable bounds, steps);
 FORMATs with Hollerith and quoted texts, some before the first executable
@@ -11,6 +11,7 @@ between.  With "sub" it is a subroutine whose parameters (a scalar, an
 array with a variable dimension) are printed too.  For testing PRINT and
 FORMAT of ftnmad against the original (ftest.py)."""
 import random
+import re
 import sys
 
 from mkeqv import card
@@ -51,7 +52,7 @@ def program(seed, n=12, sub=False):
     s = '      SUBROUTINE G%d(P, N, V)\n' % seed if sub else '      PROGRAM G%d\n' % seed
     arrays = rnd.sample(ARRAYS, rnd.randint(1, len(ARRAYS)))
     dims = {a: [int(d) for d in ds.split(',')] for a, ds in arrays}
-    s += '      DIMENSION %s\n' % ', '.join('%s(%s)' % a for a in arrays)
+    s += '      DIMENSION %s\n' % ', '.join('%s(%s)' % a for a in arrays + [('FA', '4'), ('KF', '3')])
     if sub:
         s += '      DIMENSION V(N)\n'
     dbl = rnd.random() < 0.3
@@ -109,21 +110,22 @@ def program(seed, n=12, sub=False):
         if k < 0.6:
             lst = ', '.join(item(0, []) for _ in range(rnd.randint(0, 4)))
             k2 = rnd.random()
-            lab_ = rnd.choice(labels)
+            lab_ = str(rnd.choice(labels)) if rnd.random() < 0.7 else \
+                rnd.choice(['FA', 'FA(2)', 'KF', 'KF(3)', 'KF(L)', 'M', 'Y'])
             if k2 < 0.25:
-                head = '%s %d' % (rnd.choice(['PRINT', 'PRINT', 'PUNCH']), lab_)
+                head = '%s %s' % (rnd.choice(['PRINT', 'PRINT', 'PUNCH']), lab_)
             elif k2 < 0.35:
-                head = 'READ %d' % lab_
+                head = 'READ %s' % lab_
             elif k2 < 0.65:
-                head = '%s (%s, %d)' % (rnd.choice(['READ', 'WRITE']),
+                head = '%s (%s, %s)' % (rnd.choice(['READ', 'WRITE']),
                                         rnd.choice(['5', '6', 'K', 'N' if sub else 'M']), lab_)
             elif k2 < 0.85:
                 buf = rnd.choice(list(dims) + [element()])
-                head = '%s (%s, %d, %s)' % (rnd.choice(['ENCODE', 'DECODE']),
+                head = '%s (%s, %s, %s)' % (rnd.choice(['ENCODE', 'DECODE']),
                                             rnd.choice(['20', '10', 'K']), lab_, buf)
             else:
                 head = '%s (%s)' % (rnd.choice(['READ', 'WRITE']), rnd.choice(['5', 'L']))
-            st = head + (', ' + lst if lst and '(' not in head else
+            st = head + (', ' + lst if lst and re.match(r'(PRINT|PUNCH|READ) [^(]', head) else
                          ' ' + lst if lst else '')
         elif k < 0.8:
             st = '%s = %s' % (element(), rnd.choice(['X', 'Y + 1.0', '2.5']))

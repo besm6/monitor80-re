@@ -145,7 +145,7 @@ def code_words(items):
     for it in items:
         if it.op == LABEL or it.align:
             h += h & 1
-        if it.op in (LABEL, STMT, SUBP, SECT):
+        if it.op in (LABEL, STMT, SUBP, SECT, ENTRY):
             continue
         h += 1
         if it.op in (0o31, CALL):
@@ -290,6 +290,9 @@ def render(decl, out, unit):
 
     ndata = sum(1 for it in data if it.op == OCT)
     prolog = [Item(0o24, name, reg=14), Item(0o30, '*BEGIN')]
+    for e in [it.name for it in dcl if it.op == ENTRY][1:]:
+        # more entries (ENTRY statements): the same start with their names
+        prolog += [Item(ENTRY, e), Item(0o24, e, reg=14), Item(0o30, '*BEGIN')]
     if blockdata:
         prolog = body = []
     else:
@@ -301,6 +304,9 @@ def render(decl, out, unit):
     label = ''
     seq = prolog + body + data
     for n, it in enumerate(seq):
+        if it.op == ENTRY:
+            lines.append(line(it.name, op='ENTRY'))
+            continue
         if it.op == STMT:
             nstmt += 1
             lines.append('C*****HAЧAЛO  OПEPATOPA %d' % nstmt)
