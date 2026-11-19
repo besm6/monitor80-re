@@ -120,6 +120,28 @@ glink.silver.ovl: build.lst
 modcmp: fortr.silver.bin $(addsuffix .silver.bin,$(SUBS))
 	-for o in fortr $(SUBS); do $(OVSPLIT) $$o cmp; done
 
+# The same overlays in an older edition, on the Dubna installation tape
+# monsys.9 (zones of 1024 words, no service words; catalog at zone 1, word
+# 01400). The root is FORTRAN there, loaded at 01604; the sub-overlays load
+# at 34570. `make monsys9` compares them with ours module by module.
+MONSYS9 ?= ../../../dubna/tapes/monsys.9
+# overlay, place of its RLE stream on the tape (zone, word; octal)
+TAPE_fortr = 043 01740
+TAPE_cbdpr = 046 01440
+TAPE_control = 050 01500
+TAPE_endpro = 056 01200
+TAPE_glink = 057 01140
+
+monsys9/%.bin: $(MONSYS9)
+	mkdir -p monsys9
+	set -- $(TAPE_$*); dd bs=6 skip=$$((0$$1 * 1024 + 0$$2)) status=none < $< | ../tools/ovl2bin > $@
+
+monsys9: fortr.gold.bin $(addsuffix .gold.bin,$(SUBS)) $(addprefix monsys9/,$(addsuffix .bin,fortr $(SUBS)))
+	../tools/ovlver.py fortr monsys9/fortr.bin
+	for o in $(SUBS); do ../tools/ovlver.py $$o monsys9/$$o.bin -r monsys9/fortr.bin; done
+
+.PHONY: monsys9
+
 .SECONDARY:
 
 clean:
