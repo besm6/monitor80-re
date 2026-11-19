@@ -6,10 +6,12 @@ and done then, as CBPROC of CBDPR does (CBPRCZ, CBCE, CBBSS, CBEQU).
 The tables live in the same memory array as the generator's (gen.py):
 a name is a word of text, an operand is a word with a pointer to it.
 """
+import os
 import re
 from fractions import Fraction
 
 import gen
+import scan
 import expgen
 from arith import Arith, Abort, PLUS, MINUS, MUL, DIV, POWER, ASSIGN, \
     LPAR, RPAR, COMMA
@@ -55,7 +57,11 @@ for _names, _attr in (('AMAX0 AMAX1 AMIN0 AMIN1', 1 << 15 | 0o200),
 
 
 class Error(Exception):
-    pass
+    """an error of the program compiled: code is the number the original
+    prints (the class, 0 a warning, 1 and 2 errors, then the message)"""
+    def __init__(self, text, code=None):
+        Exception.__init__(self, text)
+        self.code = code
 
 
 def integer(n):
@@ -258,6 +264,10 @@ class Front:
         self.eqlist = []        # Eq in the order they were made
         self.data_cell = 0
         self.raw = ''           # the statement as it is on the cards
+        self.inner_hook = None  # compile_listing: the statement of a logical IF
+        self.in_if = False      # compiling the statement of a logical IF
+        self.diags = []         # the codes of the diagnostics of a statement
+        self.fatal = False
 
     def put(self, w1, w2):
         if w1 & 0o77777 == 0o10 and w2 & 0o77777 in (0o11, 0o12, 0o100, 0o101) \
@@ -490,7 +500,7 @@ class Front:
         # a dimension of a parameter array may be a parameter
         s.dims = [int(d) if d.isdigit() else d for d in mt.group(2).split(',')]
         if len(s.dims) > 3:
-            raise Error('more than three dimensions')      # 42010
+            raise Error('more than three dimensions', 0o42010)
 
         s.bss = True
         self.arrays[s.name] = s
@@ -666,6 +676,12 @@ class Front:
         # CONTROL compiles the statement after a DO in a group of its own
         # (*2155B..*2165B); at the end of the group (*1064B) it forgets the
         # index registers
+        if not re.match(r'(INTEGER|REAL|LOGICAL|DOUBLEPRECISION|COMPLEX|DIMENSION|COMMON|'
+                        r'EQUIVALENCE|DATA|FORMAT|EXTERNAL|SUBROUTINE|FUNCTION|PROGRAM|'
+                        r'BLOCKDATA)', text) or '=' in text and not text.startswith('DATA'):
+            code = scan.commas(text)
+            if code:
+                raise Error('commas in a list', code)
         group, self.after_do = self.after_do, False
         done = self.unit_statement(label, text)
         if label:
@@ -781,7 +797,7 @@ class Front:
                 step = parts[k + 2] if len(parts) - k == 3 else None
                 v = self.variable(var)
                 if v & 0o77777777777 != I << 15 | 0o10 or var in self.arrays:
-                    raise Error('the index of an implied DO: ' + var)     # 21010
+                    raise Error('the index of an implied DO: ' + var, 0o21010)
                 params = [self.do_param(p) for p in (first, parts[k + 1], step or '1')]
                 self.ndo += 1
                 self.implied_ivar(v, step)
@@ -798,7 +814,7 @@ class Front:
                 toks = self.tokens(part)
                 if len(toks) != 1 or toks[0] & 0o37 not in (1, 0o10, 0o30) and \
                         toks[0] & 0o37 < 0o10:   # a constant, a variable, an element
-                    raise Error('an expression in an input/output list')    # 21010
+                    raise Error('an expression in an input/output list', 0o21010)
                 t = toks[0]
                 if t & 0o77437 == 0o30:
                     t ^= 0o20       # constant subscripts: a variable with an offset
@@ -1018,17 +1034,17 @@ class Front:
             return
         if text.startswith('COMMON') and '=' not in text:
             if self.decl_done:
-                raise Error('COMMON after an executable statement')    # 21014
+                raise Error('COMMON after an executable statement', 0o21014)
             self.commons.append(text[6:])
             return
         if text.startswith('EQUIVALENCE(') and '=' not in text:
             if self.decl_done:
-                raise Error('EQUIVALENCE after an executable statement')   # 21014
+                raise Error('EQUIVALENCE after an executable statement', 0o21014)
             self.equivs.append(text[11:])
             return
         if re.match(r'DATA[A-Z][A-Z0-9]*(\([0-9,]*\))?[,/]', text):
             if self.decl_done:
-                raise Error('DATA after an executable statement')      # 21014
+                raise Error('DATA after an executable statement', 0o21014)
             self.datas.append(unblank(self.raw)[4:])
             return
         if text.startswith('FORMAT(') and text.endswith(')'):
@@ -1066,6 +1082,8 @@ class Front:
             self.put(self.name_cell(mt.group(1)) << 33 | 0o10, 0o47)
             return
         if text.startswith('IF('):
+            if self.in_if and not re.match(r'IF\(.*\)\d+,\d+,\d+$', text):
+                raise Error('a logical IF in a logical IF', 0o21150)
             depth = 0
             for i, c in enumerate(text):
                 depth += (c == '(') - (c == ')')
@@ -1091,7 +1109,16 @@ class Front:
             end = self.load(toks)
             self.lg.run(TOKENS, end, cells[0] << 33 | 0o10, cells[1] << 33 | 0o10)
             self.put(cells[0], 0o5400000074)
-            self.statement('', rest)
+            if self.inner_hook:
+                # (compile_listing: printed and diagnosed as a statement)
+                hook, self.inner_hook = self.inner_hook, None
+                self.in_if = True
+                try:
+                    hook(rest)
+                finally:
+                    self.in_if = False
+            else:
+                self.statement('', rest)
             self.put(cells[1], 0o5400000074)
             self.jumped = False
             return
@@ -1155,10 +1182,10 @@ class Front:
             self.put(self.label(mi.group(1)), 0o1600000000000024)
             self.put(0, 0o1600000143)
             self.put(self.variable(mi.group(2)), 0o101)
-        elif text == 'CONTINUE':
+        elif text.startswith('CONTINUE'):     # (whatever follows)
             pass
-        elif text == 'RETURN' or re.match(r'STOP[A-Z0-9]*$', text):
-            self.leave(text != 'RETURN')      # (the number of STOP is not used)
+        elif text.startswith('RETURN') or re.match(r'STOP[A-Z0-9]*$', text):
+            self.leave(not text.startswith('RETURN'))      # (the number of STOP is not used)
             self.jumped = True
         elif re.match(r'(REWIND|BACKSPACE|ENDFILE)[A-Z0-9]', text) and '=' not in text:
             # REWIND u, BACKSPACE u, END FILE u: VJM *REWIN, *BACKS, *ENDFI
@@ -1169,7 +1196,7 @@ class Front:
             t = self.tokens(u)
             if len(t) != 1 or t[0] & TYPE or \
                     t[0] & 0o37 == 0o30 and t[0] & 0o77437 != 0o30:
-                raise Error('the unit must be an integer constant or variable')   # 21035
+                raise Error('the unit must be an integer constant or variable', 0o21035)
             if t[0] & 0o77437 == 0o30:
                 t[0] ^= 0o20    # constant subscripts: a variable with an offset
             self.put(t[0], 0o11)
@@ -1185,7 +1212,7 @@ class Front:
             elif n.isdigit() and 0 < int(n) < 32768:
                 self.put(self.constant(n), 0o11)
             else:
-                raise Error('PAUSE needs a constant 1..32767')     # 21035
+                raise Error('PAUSE needs a constant 1..32767', 0o21035)
             self.put(f, 0o1500000000000031)
         else:
             raise Error('unknown statement: ' + text)
@@ -1213,7 +1240,7 @@ class Front:
         """a new entry of the list of blocks and their variables"""
         p = gen.DIMENLIS + 2100 + self.nblist
         if self.nblist >= 500:
-            raise Error('too many COMMON blocks and variables')     # 42146
+            raise Error('too many COMMON blocks and variables', 0o42146)
         self.nblist += 1
         self.m[p] = word
         return p
@@ -1229,17 +1256,17 @@ class Front:
             elif text.startswith('/', pos):
                 mt = re.compile(r'/([A-Z][A-Z0-9]*)/').match(text, pos)
                 if not mt:
-                    raise Error('bad / in COMMON')              # 22015
+                    raise Error('bad / in COMMON', 0o22015)
                 name = mt.group(1)
                 pos = mt.end()
             if any(b[0] == name for b in self.blocks):
-                raise Error('a block named twice')              # 22040
+                raise Error('a block named twice', 0o22040)
             block = [name, self.blist(text_word(name)), []]
             self.blocks.append(block)
             while True:
                 mt = re.compile(r'([A-Z][A-Z0-9]*)(\([^()]*\))?').match(text, pos)
                 if not mt:
-                    raise Error('bad / in COMMON')              # 22015
+                    raise Error('bad / in COMMON', 0o22015)
                 pos = mt.end()
                 self.common_item(block, mt.group(1), mt.group(2))
                 if pos == len(text):
@@ -1247,21 +1274,21 @@ class Front:
                 if text[pos] == '/':
                     break
                 if text[pos] != ',':
-                    raise Error('no separator in COMMON')       # 22016
+                    raise Error('no separator in COMMON', 0o22016)
                 pos += 1
 
     def common_item(self, block, name, dims):
         if any(name in (s.name for s in b[2]) for b in self.blocks):
-            raise Error('a variable twice in COMMON')           # 22045
+            raise Error('a variable twice in COMMON', 0o22045)
         s = self.syms.get(name)
         if s is None:
             s = self.declare(name)
             s.declared = False
         if s.param:
-            raise Error('a parameter in COMMON')                # 22042
+            raise Error('a parameter in COMMON', 0o22042)
         if dims:
             if name in self.arrays:
-                raise Error('dimensions given twice')           # 22021
+                raise Error('dimensions given twice', 0o22021)
             self.dimension(name + dims)
         s.common = block
         s.bss = True
@@ -1284,7 +1311,7 @@ class Front:
                 e = self.eq.get(s.name)
                 if e:
                     if e.parent:
-                        raise Error('error in COMMON/EQUIVALENCE')     # 22031
+                        raise Error('error in COMMON/EQUIVALENCE', 0o22031)
                     e.done = True
                 self.put(s.cptr << 33 | self.size(s) << 18 | 0o10, 0o51)
 
@@ -1292,10 +1319,10 @@ class Front:
         """(a, b, ...), ... (CBPRCZ *0230B)"""
         for group in split_top(text):
             if not (group.startswith('(') and group.endswith(')')):
-                raise Error('error in EQUIVALENCE')             # 22023
+                raise Error('error in EQUIVALENCE', 0o22023)
             items = split_top(group[1:-1])
             if len(items) < 2:
-                raise Error('error in EQUIVALENCE')             # 22023
+                raise Error('error in EQUIVALENCE', 0o22023)
             first = self.eq_item(items[0])
             for item in items[1:]:
                 first = self.eq_merge(first, self.eq_item(item))
@@ -1306,12 +1333,12 @@ class Front:
         (*0416B)"""
         mt = re.fullmatch(r'([A-Z][A-Z0-9]*)(?:\((\d+)\))?', text)
         if not mt:
-            raise Error('error in EQUIVALENCE: ' + text)        # 22023
+            raise Error('error in EQUIVALENCE: ' + text, 0o22023)
         name, sub = mt.groups()
         off = 0
         if sub is not None:
             if name not in self.arrays:
-                raise Error('no dimensions for ' + name)        # 22035
+                raise Error('no dimensions for ' + name, 0o22035)
             off = int(sub) - 1
         s = self.syms.get(name)
         if s is None:
@@ -1320,7 +1347,7 @@ class Front:
         if s.type in (D, C):
             off *= 2        # words of an element
         if s.param:
-            raise Error('a parameter in EQUIVALENCE')           # 22026
+            raise Error('a parameter in EQUIVALENCE', 0o22026)
         s.needmem = s.bss = True
         e = self.eq.get(name)
         if e is None:
@@ -1339,10 +1366,10 @@ class Front:
         A class with a variable of COMMON always stays the root."""
         ca, cb = a[0].sym.common, b[0].sym.common
         if ca and cb:
-            raise Error('equivalence covers COMMON blocks')     # 22041
+            raise Error('equivalence covers COMMON blocks', 0o22041)
         if a[0] is b[0]:
             if a[1] != b[1]:
-                raise Error('a variable equivalenced to itself + n')    # 22047
+                raise Error('a variable equivalenced to itself + n', 0o22047)
             # the original makes the root its own child and loops in CBEQU
             raise NotImplementedError('an equivalence repeated')
         if ca or cb:
@@ -1354,7 +1381,7 @@ class Front:
                 items = a[0].sym.common[2]
                 pos = sum(self.size(s) for s in items[:items.index(a[0].sym)])
                 if pos + d < 0:
-                    raise Error('equivalence reorders COMMON')  # 22014
+                    raise Error('equivalence reorders COMMON', 0o22014)
             # the offset and the size come from 15-bit fields of the table
             # (a negative offset, a place before the root, is a large
             # positive number here); the size goes back there modulo 2**15
@@ -1461,7 +1488,7 @@ class Front:
                 mt = re.match(r'\.(TRUE|FALSE)\.|([0-7]+)B|([-+]?)(\d+(?:\.\d*)?'
                               r'(?:[ED][-+]?\d+)?|\.\d+(?:[ED][-+]?\d+)?)', text[pos:])
                 if not mt:
-                    raise Error('not a constant in DATA: ' + text[pos:])     # 22044
+                    raise Error('not a constant in DATA: ' + text[pos:], 0o22044)
                 pos += mt.end()
                 if mt.group(1):
                     out.append([int(mt.group(1) == 'TRUE'), L, rep])
@@ -1481,7 +1508,7 @@ class Front:
             if text[pos] == '/':
                 return out, pos + 1
             if text[pos] != ',':
-                raise Error('bad DATA: ' + text)                # 22032
+                raise Error('bad DATA: ' + text, 0o22032)
             pos += 1
 
     def in_common(self, s):
@@ -1504,12 +1531,12 @@ class Front:
         s = self.syms.get(name)
         star = self.cell('*', 0o10)
         if s is not None and s.param:
-            raise Error('DATA for a parameter')                 # 22036
+            raise Error('DATA for a parameter', 0o22036)
         if self.kind == 'BLOCK DATA' and not self.in_common(s):
             raise Error('DATA in BLOCK DATA for a variable not in COMMON')
         if subs is not None:
             if name not in self.arrays:
-                raise Error('no dimensions for ' + name)        # 22035
+                raise Error('no dimensions for ' + name, 0o22035)
             off, mult = 0, 2 if s.type in (D, C) else 1
             dims = self.arrays[name].dims
             for i, k in enumerate(subs.split(',')):
@@ -2177,31 +2204,76 @@ def split_top(text):
 
 
 def statements(lines):
-    """the cards of one program unit -> (label, text without blanks, text
-    as it is: columns 7-72 of every card)"""
+    """the cards of a text -> (label, text without blanks, text as it is:
+    columns 7-72 of every card, Piece: where it is on the cards); a
+    comment between statements -> (None, None, None, Piece)"""
+    for item in cards(lines):
+        if item[1] is None:
+            yield None, None, None, item[2]
+        else:
+            yield from split_dollar(*item)
+
+
+def cards(lines):
+    """the cards of a text -> (label, columns 7-72 of its cards one after
+    another, [(card, is a comment)]) for every statement (not split at
+    $), (None, None, None, Piece) for a comment between statements"""
     cur = None
     for l in lines:
         l = l.rstrip('\n').upper()[:72]
-        if not l.strip() or l[0] in 'C*':
+        if not l.strip():
+            # a blank card ends a statement; it is not printed
+            if cur:
+                yield tuple(cur)
+            cur = None
+            continue
+        if l[0] == 'C':
+            if cur:
+                cur[2].append((l, True))
+            else:
+                yield None, None, Piece([(l, True)], 0, 0, True)
             continue
         if len(l) > 5 and l[5] not in ' 0' and cur:
             cur[1] += l[6:].ljust(66)
+            cur[2].append((l, False))
             continue
         if cur:
-            yield from split_dollar(*cur)
-        cur = [l[:5].strip(), l[6:].ljust(66)]
+            yield tuple(cur)
+        cur = [l[:5].strip(), l[6:].ljust(66), [(l, False)]]
     if cur:
-        yield from split_dollar(*cur)
+        yield tuple(cur)
 
 
-def split_dollar(label, raw):
+def next_end(raw, start):
+    """where the statement starting at raw[start:] ends: at the next $
+    outside Hollerith constants and '...' (not in a FORMAT statement)"""
+    if raw[start:].replace(' ', '').startswith('FORMAT('):
+        return len(raw)
+    text, i = '', start
+    while i < len(raw):
+        c = raw[i]
+        n = 1
+        if c == "'":
+            k = raw.find("'", i + 1)
+            n = (len(raw) if k < 0 else k + 1) - i
+        elif c == 'H' and re.search(r'(^|[^A-Z0-9])\d+$', text):
+            n = int(re.search(r'\d+$', text).group()) + 1
+        elif c == '$':
+            return i
+        text += raw[i:i + n].replace(' ', '') if n == 1 else raw[i:i + n]
+        i += n
+    return len(raw)
+
+
+def split_dollar(label, raw, cards=()):
     """$ separates statements on a card (as in the CDC 1604 compiler this
     one was made from), but not in Hollerith constants, in '...', nor in
-    a FORMAT statement; only the first statement has the label; empty
-    ones are skipped"""
-    pieces = [raw]
+    a FORMAT statement; only the first statement has the label; an empty
+    one is a statement too (warning 05003).  The echo of a statement: the
+    parts of its cards that it takes, the rest blanked"""
+    spans = [(0, len(raw))]
     if not raw.replace(' ', '').startswith('FORMAT('):
-        pieces, cur, text, i = [], '', '', 0
+        spans, start, text, i = [], 0, '', 0
         while i < len(raw):
             c = raw[i]
             n = 1
@@ -2211,54 +2283,271 @@ def split_dollar(label, raw):
             elif c == 'H' and re.search(r'(^|[^A-Z0-9])\d+$', text):
                 n = int(re.search(r'\d+$', text).group()) + 1
             elif c == '$':
-                pieces.append(cur)
-                cur = text = ''
+                spans.append((start, i))
+                start, text = i + 1, ''
                 i += 1
                 continue
-            cur += raw[i:i + n]
             text += raw[i:i + n].replace(' ', '') if n == 1 else raw[i:i + n]
             i += n
-        pieces.append(cur)
-    first = True
-    for piece in pieces:
-        if piece.strip():
-            yield (label if first else '', unblank(piece), piece)
-        first = False
+        spans.append((start, len(raw)))
+    last = len(spans) - 1
+    for k, (a, b) in enumerate(spans):
+        piece = raw[a:b]
+        yield (label if k == 0 else '', unblank(piece), piece,
+               Piece(cards, a, b, k == last))
+
+
+class Piece:
+    """where a statement is on its cards, for the echo in the listing"""
+    def __init__(self, cards, a, b, last):
+        self.cards, self.a, self.b, self.last = cards, a, b, last
+
+    def echo(self, a=None, b=None, mark=None, comments=True):
+        """the lines of the cards from a to b (offsets in columns 7-72
+        of the cards one after another), the rest blanked; mark: put into
+        column 6 of the first line (- for the statement of a logical IF)"""
+        a = self.a if a is None else a
+        b = self.b if b is None else b
+        out = []
+        j = -1
+        for card, comment in self.cards:
+            if comment:
+                # (comments among or after the cards: with the last part)
+                if self.last and comments:
+                    out.append(card.rstrip())
+                continue
+            j += 1
+            lo, hi = 66 * j, 66 * j + 66
+            if b <= lo or a >= hi:
+                continue
+            body = card[6:].ljust(66)
+            head = card[:6].ljust(6) if a <= lo else ' ' * 6
+            if mark and not out:
+                head = ' ' * 5 + mark
+            line = head + ' ' * max(a - lo, 0) + body[max(a - lo, 0):min(b, hi) - lo]
+            if line.strip():
+                out.append(line.rstrip())
+        return out or ['']      # (an empty statement: an empty line)
 
 
 def unblank(raw):
     """the text of a statement without blanks, but those in Hollerith
     constants nH... and in '...' kept"""
-    out, i = '', 0
+    return unblank_map(raw)[0]
+
+
+def unblank_map(raw):
+    """unblank(raw) and, for every character of it, its offset in raw"""
+    out, pos, i = '', [], 0
     while i < len(raw):
         c = raw[i]
         if c == "'":
             k = raw.find("'", i + 1)
             k = len(raw) if k < 0 else k + 1
             out += raw[i:k]
+            pos += range(i, k)
             i = k
             continue
         if c == 'H' and re.search(r'(^|[^A-Z0-9])\d+$', out):
             n = int(re.search(r'\d+$', out).group())
             out += raw[i:i + n + 1]
+            pos += range(i, min(i + n + 1, len(raw)))
             i += n + 1
             continue
         if c != ' ':
             out += c
+            pos.append(i)
         i += 1
+    return out, pos
+
+
+def messages():
+    """code & 07777 -> the text of the message (errmsg.txt: the table of
+    the original compiler, a 4-digit octal number and the text)"""
+    out = {}
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'errmsg.txt')) as f:
+        for l in f:
+            if l[:4].isdigit():
+                out[int(l[:4], 8)] = l[5:].rstrip('\n')
+    return out
+
+
+MESSAGES = None
+
+
+def diagnostic(code):
+    """the two lines of the listing for an error"""
+    global MESSAGES
+    if MESSAGES is None:
+        MESSAGES = messages()
+    text = MESSAGES.get(code & 0o7777)
+    if text is None:
+        text = ' NUMBER%05o  IS ABSENT' % code
+    return [' %05o' % code, ' ' + text.rstrip()]
+
+
+def called(mad):
+    """the table of the functions and subroutines a unit calls, printed
+    after its END: the names of its SUBPs, but the library's (with *), six
+    in a line"""
+    names = [m.group(1) for m in (re.match(r' (\S+)\s*:  , SUBP,', l) for l in mad)
+             if m and '*' not in m.group(1)]
+    if not names:
+        return []
+    out = ['', '', ' ' * 20 + 'BЫЗЫBAEMЫE ФYHKЦИИ И ПOДПPOГPAMMЫ', '', '']
+    for i in range(0, len(names), 6):
+        out.append((' ' * 7 + ''.join('%-12s' % n for n in names[i:i + 6])).rstrip())
+    return out
+
+
+def label_field(crd):
+    """the label of a statement from columns 1-5 of its first card (the
+    digits; other characters but letters are skipped) and the code of an
+    error of the label field: 15032 a continuation card with a label,
+    15013 a letter, 15031 a label 0"""
+    cards = [c for c, comment in crd if not comment]
+    if any(c[:5].strip() for c in cards[1:]) or \
+            cards[0][5:6] not in ('', ' ', '0') and cards[0][:5].strip():
+        return '', 0o15032
+    field = cards[0][:5]
+    digits = ''.join(c for c in field if c.isdigit())
+    if any(c.isalpha() for c in field):
+        return '', 0o15013
+    if field.strip() and not int(digits or '0'):
+        return '', 0o15031
+    return digits, None
+
+
+def compile_listing(src):
+    """Fortran text -> [(listing, madlen)] for every program unit: the
+    lines the compiler prints (the cards, the diagnostics after the
+    statements) and the Madlen text, None if there were errors (not
+    warnings)"""
+    out = []
+    st = {'f': None, 'lst': [], 'done': False}
+
+    def flush():
+        f = st['f']
+        for code in f.diags:
+            st['lst'] += diagnostic(code)
+            if code >> 12:
+                f.fatal = True
+        f.diags = []
+
+    def echo(cards, a, b, raw, mark=None, comments=True):
+        piece = Piece(cards, a, b, b >= len(raw))
+        st['lst'] += [('    ' + l).rstrip() for l in piece.echo(a, b, mark, comments)]
+
+    def run(label, raw, cards, a, b, mark=None):
+        """scan the statement raw[a:b] (SCANSTMT), print it and compile it
+        -> where it ended: an error makes it end at the next $ of the
+        card, whatever it is in"""
+        f = st['f']
+        text, pos = unblank_map(raw[a:b])
+        warnings, err, split, at = scan.scan(text) if text else ([], None, None, 0)
+        if err is not None:
+            p = a + pos[at] if at < len(pos) else b
+            k = raw.find('$', p)
+            if 0 <= k < b:
+                b = k
+            echo(cards, a, b, raw, mark)
+            f.diags.append(err)
+            flush()
+            return b
+        if split is None:
+            echo(cards, a, b, raw, mark)
+            if not text:
+                f.diags.append(0o5003)      # an empty statement (from $$)
+            else:
+                f.diags += warnings
+                f.raw = raw[a:b]
+                compile1(label, text)
+            flush()
+            return b
+        # a logical IF: its condition, then the statement it governs as
+        # one of its own, printed on a line marked -
+        c = a + pos[split]
+        echo(cards, a, c, raw, mark, comments=False)
+        f.diags += warnings
+        ends = []
+
+        def inner(rest):
+            flush()
+            ends.append(run('', raw, cards, c, b, '-'))
+        f.inner_hook = inner
+        f.raw = raw[a:b]
+        compile1(label, text)
+        f.inner_hook = None
+        if not ends:
+            flush()
+            echo(cards, c, b, raw, '-')
+            ends.append(b)
+        flush()
+        return ends[0]
+
+    def compile1(label, text):
+        f = st['f']
+        try:
+            if f.statement(label, text):
+                st['done'] = True
+        except (Error, gen.CompileError) as e:
+            if e.code is None:
+                # not yet known how the original diagnoses it
+                st['lst'] += ['*** ' + str(e)]
+                f.fatal = True
+            else:
+                f.diags.append(e.code)
+            if text == 'END':
+                st['done'] = True
+        except Exception as e:
+            if not f.fatal:
+                raise
+            # (after an error the tables may be in disorder)
+            st['lst'] += ['*** %s: %s' % (type(e).__name__, e)]
+            if text == 'END':
+                st['done'] = True
+
+    for label, raw, crd in cards(src.splitlines()):
+        if raw is None:
+            st['lst'] += ['    ' + l for l in crd.echo()]
+            continue
+        start = 0
+        label, lerr = label_field(crd)
+        while True:
+            if st['f'] is None:
+                st['f'] = Front()
+            f = st['f']
+            end = next_end(raw, start)
+            if start == 0 and lerr:
+                # (the statement is not compiled)
+                k = raw.find('$')
+                b = k if k >= 0 else len(raw)
+                echo(crd, 0, b, raw)
+                f.diags.append(lerr)
+                flush()
+            else:
+                b = run(label if start == 0 else '', raw, crd, start, end)
+            if st['done']:
+                mad = None
+                if not f.fatal:
+                    f.epilogue()
+                    mad = f.text()
+                    st['lst'] += called(mad)
+                out.append((st['lst'], mad))
+                st['lst'] = []
+                st['f'] = None
+                st['done'] = False
+            if b >= len(raw):
+                break
+            start = b + 1
+    if st['lst']:
+        out.append((st['lst'], None))
     return out
 
 
 def compile_text(src):
     """Fortran text -> lines of Madlen text"""
     out = []
-    f = None
-    for label, text, raw in statements(src.splitlines()):
-        if f is None:
-            f = Front()
-        f.raw = raw
-        if f.statement(label, text):
-            f.epilogue()
-            out += f.text()
-            f = None
+    for lst, mad in compile_listing(src):
+        out += mad or []
     return out

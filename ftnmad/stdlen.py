@@ -6,7 +6,9 @@ import re, sys
 from front import statements, split_top
 src = open(sys.argv[1]).read()
 size, blocks, eqs = {}, {}, []
-for label, text, raw in statements(src.splitlines()):
+for label, text, raw, echo in statements(src.splitlines()):
+    if not text:
+        continue
     m = re.match(r'(DIMENSION|INTEGER|REAL|LOGICAL)(.*)', text)
     if m:
         for it in split_top(m.group(2)):

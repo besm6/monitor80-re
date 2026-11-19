@@ -20,6 +20,7 @@ class State:
         self.m = [0] * 16       # index registers
         self.mem = Mem()
         self.writes = []        # (address, value) since the last event
+        self.path = []          # the addresses of the last words executed
 
 
 def run(src, addrs, job='*name test\n*full\n*fortran\n'):
@@ -47,8 +48,10 @@ def run(src, addrs, job='*name test\n*full\n*fortran\n'):
                             st.writes.append((a, v))
                     elif k[0] == 'M' and k[1:].isdigit():
                         st.m[int(k[1:], 8)] = int(s[2], 8)
-                elif l[5:8] == ' L:':
+                elif l[5:8] in (' L:', ' R:'):
                     a = int(l[:5], 8)
-                    if a in addrs:
+                    if not st.path or st.path[-1] != a:
+                        st.path = st.path[-15:] + [a]
+                    if l[5:8] == ' L:' and a in addrs:
                         yield a, st
                         st.writes = []
