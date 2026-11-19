@@ -209,6 +209,7 @@ class Front:
         self.io_funcs = {}      # FT*... routines used: name -> token
         self.formats = {}       # FORMAT labels: n -> cell of /n
         self.pending_formats = []   # FORMATs before the first statement
+        self.after_do = False   # the next statement ends a group of CONTROL
         self.sfuncs = set()     # statement functions (no SUBP) ...
         self.sf_bound = 0       # ... at the start of self.functions (D33212)
         self.sf_args = {}       # dummy -> token while compiling one
@@ -602,15 +603,28 @@ class Front:
             self.expression(toks)
 
     def statement(self, label, text):
+        # CONTROL compiles the statement after a DO in a group of its own
+        # (*2155B..*2165B); at the end of the group (*1064B) it forgets the
+        # index registers
+        group, self.after_do = self.after_do, False
         done = self.unit_statement(label, text)
         if label:
             self.close_loops(str(int(label)))
+        if group:
+            self.forget_registers()
         return done
 
     def close_loops(self, label):
         """the ends of the DO loops with this terminal statement"""
         while self.loops and self.loops[-1][0] == label:
             self.close_loop(*self.loops.pop()[1:])
+
+    def forget_registers(self):
+        """CONTROL *0767B (with nothing kept): the index registers hold
+        nothing known"""
+        for i in range(6):
+            self.m[gen.D33143 + 91 + i] = 0
+            self.m[gen.D33143 + 85 + i] = 0
 
     def close_loop(self, var, step, limit, wcell, tcell):
         """the end of a DO loop: var += step, the test, the jump back"""
@@ -824,6 +838,7 @@ class Front:
         self.begin(label)
         self.ndo += 1
         self.loops.append((str(int(end)),) + self.open_loop(self.ndo, var, params, step))
+        self.after_do = True
         return True
 
     def open_loop(self, n, var, params, step, implied=False):

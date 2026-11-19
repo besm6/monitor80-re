@@ -246,8 +246,7 @@ def program(seed, n=20, sub=False, com=False, bd=False):
         else:
             st = '%s = %s - %s' % (rnd.choice(scalars), operand(), operand())
         # with "com" no label after a CALL (the index registers are
-        # forgotten there); elsewhere CONTROL forgets them at the ends of
-        # its groups of statements, not reproduced yet: labels hide that
+        # forgotten there); unlabel.py removes the other unused labels
         if com and called and lab not in ends:
             s += '      %s\n' % st
         else:
