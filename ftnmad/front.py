@@ -98,6 +98,16 @@ def signed_real(x):
     return (e + 64) << 41 | int(x * (1 << 40)) & ((1 << 41) - 1)
 
 
+def real_int(w):
+    """the integer part of a word taken for a real number (an octal
+    constant nB in a subscript: a tiny number, 0, unless n is large)"""
+    mant = w & (1 << 41) - 1
+    if mant >> 40:
+        mant -= 1 << 41
+    x = Fraction(mant, 1 << 40) * Fraction(2) ** ((w >> 41) - 64)
+    return int(x)
+
+
 def negate_real(w):
     """minus a non-negative normalized real number"""
     if w == 0:
@@ -172,6 +182,7 @@ class Sym:
 
 
 LOGOP = r'(?:EQ|NE|GT|LT|GE|LE|AND|OR|NOT)'
+OCTAL = re.compile(r'([0-7]+)B(?![A-Z0-9])')    # an octal constant: a bare word
 TOKEN = re.compile(r'(\d+(?:\.(?!(?:' + LOGOP + r'|TRUE|FALSE)\.)\d*)?(?:[ED][+-]?\d+)?'
                    r'|\.\d+(?:[ED][+-]?\d+)?)'
                    r'|([A-Z][A-Z0-9]*)|(\*\*|[-+*/=(),]|\.' + LOGOP + r'\.)'
@@ -295,9 +306,13 @@ class Front:
         return s.ptr << 33 | s.type << 15 | 0o10
 
     def function(self, name):
+        s = self.syms.get(name)
+        if s is not None and s.param and name not in self.arrays:
+            # a parameter procedure: called through the address it holds
+            # (kind 0213, no SUBP)
+            return s.ptr << 33 | s.type << 15 | 0o213
         t = self.functions.get(name)
         if t is None:
-            s = self.syms.get(name)
             if name in STDFUNC and not (s and s.declared):
                 t = self.name_cell(name) << 33 | STDFUNC[name] | 0o13
             else:
@@ -368,6 +383,13 @@ class Front:
         out = []
         pos = 0
         while pos < len(text):
+            mo = OCTAL.match(text, pos)
+            if mo:
+                # nB: the word itself, of type I (no integer format: it is
+                # used without any conversion)
+                out.append(self.const_word(int(mo.group(1), 8) & (1 << 48) - 1, I))
+                pos = mo.end()
+                continue
             mt = TOKEN.match(text, pos)
             if not mt:
                 raise Error('bad character: ' + text[pos:])
@@ -458,7 +480,10 @@ class Front:
             return t & 0o77777 == 1 and not t & TYPE
 
         def value(t):
-            return self.m[t >> 24] & 0o77777777777777
+            w = self.m[t >> 24]
+            if w >> 42 == 0o64:         # an integer
+                return w & 0o77777777777777
+            return real_int(w)          # an octal constant: by its value
 
         t = list(toks)
         if len(t) == 1 and const(t[0]):
@@ -722,7 +747,7 @@ class Front:
                 v = self.variable(var)
                 if v & 0o77777777777 != I << 15 | 0o10 or var in self.arrays:
                     raise Error('the index of an implied DO: ' + var)     # 21010
-                params = [self.tokens(p)[0] for p in (first, parts[k + 1], step or '1')]
+                params = [self.do_param(p) for p in (first, parts[k + 1], step or '1')]
                 self.ndo += 1
                 self.implied_ivar(v, step)
                 out.append((items, v, params, step, self.ndo))
@@ -833,13 +858,20 @@ class Front:
         if not mt:
             return False
         end, var, first, limit, step = mt.groups()
-        params = [self.tokens(p)[0] for p in (first, limit, step or '1')]
+        params = [self.do_param(p) for p in (first, limit, step or '1')]
         var = self.variable(var)
         self.begin(label)
         self.ndo += 1
         self.loops.append((str(int(end)),) + self.open_loop(self.ndo, var, params, step))
         self.after_do = True
         return True
+
+    def do_param(self, text):
+        """a parameter of DO: an octal constant becomes an integer"""
+        t = self.tokens(text)[0]
+        if t & 0o77777777 == 1 and self.m[t >> 24] >> 42 != 0o64:
+            t = self.const_word(integer(self.m[t >> 24]), I)
+        return t
 
     def open_loop(self, n, var, params, step, implied=False):
         """the start of a DO loop (or of an implied one) number n: var =
@@ -2046,14 +2078,45 @@ def statements(lines):
         if not l.strip() or l[0] in 'C*':
             continue
         if len(l) > 5 and l[5] not in ' 0' and cur:
-            cur[1] += l[6:].replace(' ', '')
-            cur[2] += l[6:].ljust(66)
+            cur[1] += l[6:].ljust(66)
             continue
         if cur:
-            yield tuple(cur)
-        cur = [l[:5].strip(), l[6:].replace(' ', ''), l[6:].ljust(66)]
+            yield from split_dollar(*cur)
+        cur = [l[:5].strip(), l[6:].ljust(66)]
     if cur:
-        yield tuple(cur)
+        yield from split_dollar(*cur)
+
+
+def split_dollar(label, raw):
+    """$ separates statements on a card (as in the CDC 1604 compiler this
+    one was made from), but not in Hollerith constants, in '...', nor in
+    a FORMAT statement; only the first statement has the label; empty
+    ones are skipped"""
+    pieces = [raw]
+    if not raw.replace(' ', '').startswith('FORMAT('):
+        pieces, cur, text, i = [], '', '', 0
+        while i < len(raw):
+            c = raw[i]
+            n = 1
+            if c == "'":
+                k = raw.find("'", i + 1)
+                n = (len(raw) if k < 0 else k + 1) - i
+            elif c == 'H' and re.search(r'(^|[^A-Z0-9])\d+$', text):
+                n = int(re.search(r'\d+$', text).group()) + 1
+            elif c == '$':
+                pieces.append(cur)
+                cur = text = ''
+                i += 1
+                continue
+            cur += raw[i:i + n]
+            text += raw[i:i + n].replace(' ', '') if n == 1 else raw[i:i + n]
+            i += n
+        pieces.append(cur)
+    first = True
+    for piece in pieces:
+        if piece.strip():
+            yield (label if first else '', piece.replace(' ', ''), piece)
+        first = False
 
 
 def unblank(raw):
