@@ -54,7 +54,13 @@ OV.layout.py defines
     BASES       {module address: register} for a module that keeps its own
                 address in a base register: operands indexed by it are
                 offsets from the module start and stay numbers; with
-                `base:R,0` in NAME.dtr DTRAN turns them into local labels
+                `base:R,X` in NAME.dtr (X: octal offset of the address the
+                register holds) DTRAN turns them into local labels, and
+                `R,BASE,` is written. An offset that falls outside the module
+                stays a number. Pieces that use the base of an earlier piece
+                (or hold the data it reaches) are one module (PUTLABEL,
+                FUNCREF); a common block it reaches that another module also
+                uses becomes data of the module with an entry (D41115)
     ROOT        (sub-overlay only) OV name of the root overlay; addresses in
                 the root that the listing shows as numbers become the names of
                 its modules, entries and common blocks
@@ -432,6 +438,18 @@ def make_asm(lay, name):
         data += data_section(lay, c, n)
     if not rest or rest[-1].strip() != ',END,':
         sys.exit('%s: no END' % name)
+    if s in lay.bases and os.path.exists(name.lower() + '.dtr'):
+        # an offset from the base that falls outside the module (data of
+        # another one, reached through the base register) has no label
+        # here: it goes back to a number with the register
+        x = next(int(m.group(1), 8) for m in (re.match(r'base:\d+,([0-7]+)', l)
+                                                for l in open(name.lower() + '.dtr')) if m)
+        defined = set(re.findall(r'\*([0-7]{4})B(?::|\.=)', '\n'.join(rest)))
+        for k, l in enumerate(rest):
+            m = re.match(r'( (?:\S+:)?),([^,]+),\*([0-7]{4})B$', l)
+            if m and m.group(3) not in defined:
+                rest[k] = '%s%s,%s,%oB' % (m.group(1), lay.bases[s], m.group(2),
+                                          int(m.group(3), 8) - x)
     ren = re.compile(r'(?<![\w/*])(%s)(?![\w/*])' % '|'.join(rename or ['\0']))
     for l in head:
         print(ren.sub(lambda m: rename[m.group(1)], l))

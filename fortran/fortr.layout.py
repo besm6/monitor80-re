@@ -97,5 +97,6 @@ ERRCALLS = [0o33740, 0o34320, 0o34322, 0o06463, 0o05403, 0o03462]
 # 03477: error number 5003, kept in a cell and passed to ERRVEC later;
 # 34443: ERRPRINT's own error 41777 (more than 100 errors)
 NUMBERS = [0o03477, 0o34443]
-BASES = {0o04407: 7}            # PUTAWAY: уиа PUTAWAY(М7), see putaway.dtr
+BASES = {0o04407: 7,             # PUTAWAY: уиа PUTAWAY(М7), see putaway.dtr
+         0o33612: 14}            # LISTCARD: уиа LISTCARD(М14), see listcard.dtr
 ERRMSG = 'errmsg.txt'            # the texts of zones 0202-0205 (ftnerr.py)

@@ -24,8 +24,6 @@ LAYOUT = [
     (0o40726, M, 'G40726'),
     (0o40735, C, 'D40735'),
     (0o41025, M, 'G41025'),
-    (0o41101, M, 'G41101'),
-    (0o41107, C, 'D41107'),
     (0o41117, M, 'G41117'),
     (0o41140, C, 'D41140'),
 ]
@@ -41,9 +39,11 @@ RENAME = {
     'G37766': 'MKITEM2',
     'G37532': 'CBDUMP',     # debugging print through DBGPRINT
     'G40726': 'PUTDAT',     # item -> PUTAWAY
-    'G41025': 'PUTLABEL',   # statement label: decimal text, items to PUTAWAY
-    'G41101': 'PUTITEM',    # address and code -> PUTAWAY
+    'G41025': 'PUTLABEL',   # statement label: decimal text, items to PUTAWAY;
+                            # its subroutine PUTITEM (address and code -> PUTAWAY)
+                            # at +54 and its data D41115 (used by CBPRCZ) inside
     'G41117': 'LABTEXT',    # label number -> text (SDEC)
 }
 LOW = '../lowmap.txt'          # resident monitor names
+BASES = {0o41025: 7}            # PUTLABEL: уиа PUTLABEL(М7), see putlabel.dtr
 ERRCALLS = [0o36376]            # CBERROR (and those of the root)

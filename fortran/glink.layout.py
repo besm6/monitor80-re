@@ -54,3 +54,5 @@ OWNER = {0o47467: 0o45027}
 # modules that begin with a vector of jumps to their routines
 VECTORS = {0o42161: 0o33, 0o45027: 3, 0o46233: 5}
 LOW = '../lowmap.txt'          # resident monitor names
+BASES = {0o37324: 11,            # TABFIND: уиа TABFIND(М11), see tabfind.dtr
+         0o37402: 7}             # LISTLINE: уиа LISTLINE(М7), see listline.dtr

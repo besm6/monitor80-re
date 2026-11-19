@@ -15,8 +15,6 @@ LAYOUT = [
     (0o41174, M, 'G41174'),
     (0o42540, M, 'G42540'),
     (0o44472, M, 'G44472'),
-    (0o44647, M, 'G44647'),
-    (0o44661, M, 'G44661'),
     (0o44753, M, 'G44753'),
     (0o44763, M, 'G44763'),
     (0o44766, M, 'G44766'),
@@ -60,6 +58,9 @@ RENAME = {
     'G50207': 'PROSIG',     # debugging print, prints its own name
 }
 LOW = '../lowmap.txt'          # resident monitor names
+BASES = {0o41174: 7,             # ARITHEXP: уиа ARITHEXP+6(М7), see arithexp.dtr
+         0o42540: 7,             # OPERAND: уиа OPERAND+2(М7), see operand.dtr
+         0o44472: 7}             # FUNCREF (with G44647, G44661): уиа FUNCREF+5(М7), see funcref.dtr
 # the tables after TABTRACE belong to G46107
 OWNER = {0o47017: 0o46107}
 ERRCALLS = [0o44763, 0o44765]    # jumps to ERRPRINT and ERRPRIN2 (and those of the root)
