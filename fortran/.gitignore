@@ -1,0 +1,7 @@
+# products of `make asm` (ovsplit.py be) and of the build
+*.be
+*.errnum
+build.lst
+lib.lst
+loadmap
+__pycache__/

@@ -24,8 +24,11 @@ def layouts():
     for fn in sorted(os.listdir(FORTRAN)):
         if fn.endswith('.layout.py'):
             text = open(os.path.join(FORTRAN, fn)).read()
-            mods = [(int(a, 8), n) for a, n in re.findall(r"'G([0-7]{5})': '([^']+)'", text)]
-            out[fn.split('.')[0]] = sorted(mods)
+            names = dict(re.findall(r"'G([0-7]{5})': '([^']+)'", text))
+            # every module of the layout, by its name or its address
+            mods = {a: names.get(a, 'G' + a) for a in re.findall(r"\(0o([0-7]{5}), M, 'G", text)}
+            mods.update(names)
+            out[fn.split('.')[0]] = sorted((int(a, 8), n) for a, n in mods.items())
     return out
 
 
