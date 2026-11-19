@@ -258,7 +258,13 @@ def render(decl, out, unit):
     nerr, ncer = unit.temps, unit.commons
     body = []
     keep = False
+    drop_next = False
     for it in code:
+        if drop_next:
+            # the instruction a dropped UTC (a variable in COMMON) modifies
+            drop_next = False
+            if not it.spec:
+                continue
         if it.spec:
             # kept when the variable has an update routine (or the unit has
             # *RELCN); an item without a name goes with the one before it
@@ -266,6 +272,7 @@ def render(decl, out, unit):
                 # (GLINK keeps WTC of a parameter and its XTA anyway)
                 keep = it.name in unit.update or it.op == 0o23
             if not keep:
+                drop_next = it.op == 0o22
                 continue
             if it.op == 0o31 and it.name != '*RELCN':
                 it = Item(0o31, '*U%04d' % unit.update.index(it.name), reg=it.reg)

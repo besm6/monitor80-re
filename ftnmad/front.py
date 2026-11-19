@@ -811,21 +811,32 @@ class Front:
             self.put(t, 0o73)       # (an element with constant subscripts too)
 
     def io_statement(self, label, text):
-        """PRINT n, READ n, READ (u, n), WRITE (u, n), READ (u), WRITE (u)
-        [list]: the routine of the start (the unit and the format before
-        it; 073 for a unit in a variable), one for every item, the end:
+        """PRINT n, PUNCH n, READ n, READ (u, n), WRITE (u, n), READ (u),
+        WRITE (u), ENCODE/DECODE (c, n, a) [list]: the routine of the start
+        (the unit or count, the format and the array before it; 073 for a
+        unit or count in a variable), one for every item, the end:
                     start   item    end
         PRINT n     FT*571  FT*002  FT*003
+        PUNCH n     FT*561  FT*002  FT*003
         READ n      FT*541  FT*002  FT*003
+        ENCODE (c,n,a)  FT*611  FT*002  FT*003
+        DECODE (c,n,a)  FT*531  FT*002  FT*003
         READ (u,n)  FT*521  FT*002  FT*003
         WRITE (u,n) FT*621  FT*002  FT*003
         READ (u)    FT*641  FT*642  FT*643
         WRITE (u)   FT*721  FT*722  FT*723
         (FD*nnn, FC*nnn for double precision and complex items)"""
-        mt = re.match(r'(PRINT|READ)(\d+)(?:,(.*))?$', text)
+        mt = re.match(r'(PRINT|PUNCH|READ)(\d+)(?:,(.*))?$', text)
+        me = re.match(r'(ENCODE|DECODE)\(([A-Z0-9]+),(\d+),([A-Z][A-Z0-9]*(?:\([^()]*\))?)\)(.*)$',
+                      text)
+        array = None
         if mt:
             unit, fmt, lst = None, mt.group(2), mt.group(3)
-            start = 'FT*571' if mt.group(1) == 'PRINT' else 'FT*541'
+            start = {'PRINT': 'FT*571', 'PUNCH': 'FT*561', 'READ': 'FT*541'}[mt.group(1)]
+            item, end = 'FT*002', 'FT*003'
+        elif me:
+            unit, fmt, array, lst = me.group(2), me.group(3), me.group(4), me.group(5)
+            start = 'FT*611' if me.group(1) == 'ENCODE' else 'FT*531'
             item, end = 'FT*002', 'FT*003'
         else:
             mt = re.match(r'(READ|WRITE)\(([A-Z0-9]+)(?:,(\d+))?\)(.*)$', text)
@@ -838,15 +849,27 @@ class Front:
                 start, item, end = ('FT*721', 'FT*722', 'FT*723') if write else \
                     ('FT*641', 'FT*642', 'FT*643')
         args = [self.tokens(unit)[0]] if unit else []
+        if array:
+            t = self.tokens(array)[0]
+            if t & 0o77437 == 0o30:
+                t ^= 0o20       # constant subscripts: a variable with an offset
         tree = self.io_tree(lst) if lst else []
         self.begin(label)
         self.m[gen.D33143 + 222] = 0    # CONTROL: the calls are of type I
         if fmt:
             args.append(self.format_label(fmt))
+        if array:
+            args.append(t)
         for t in args:
             self.put(t, 0o11)
         self.put(self.library(start), 0o10)
-        if unit and args[0] & 0o37 == 0o10 and not args[0] & 0o777427:
+        # 073 for one of them: an integer buffer of ENCODE/DECODE, not a
+        # whole array (with the bit 0100), else a unit or count in a variable
+        def changeable(t):
+            return t & 0o37 == 0o10 and not t & 0o777427
+        if array and changeable(args[-1]) and array not in self.arrays:
+            self.put(args[-1] | 0o100, 0o73)
+        elif unit and changeable(args[0]):
             self.put(args[0], 0o73)
         if tree:
             self.io_items(tree, item)
@@ -966,7 +989,8 @@ class Front:
                 self.leave()
             return True
         self.jumped = False
-        if re.match(r'(PRINT|READ)\d+(,|$)|(READ|WRITE)\([A-Z0-9]+(,\d+)?\)', text):
+        if re.match(r'(PRINT|PUNCH|READ)\d+(,|$)|(READ|WRITE)\([A-Z0-9]+(,\d+)?\)'
+                    r'|(ENCODE|DECODE)\(', text):
             self.io_statement(label, text)
             return
         mt = re.match(r'([A-Z][A-Z0-9]*)\(([A-Z][A-Z0-9]*(?:,[A-Z][A-Z0-9]*)*)\)=(.*)$', text)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """mkio.py seed [n] [sub] - a random Fortran program (stdout) with PRINT,
-READ, WRITE (formatted and not, units constant and in variables) and
+PUNCH, READ, WRITE (formatted and not, units constant and in variables),
+ENCODE, DECODE and
 FORMAT: lists of scalars (integer, real, double precision, in COMMON),
 array elements with constant and variable subscripts, whole arrays of 1-3
 dimensions, nested implied DO loops (constant and variable bounds, steps);
@@ -109,11 +110,19 @@ def program(seed, n=12, sub=False):
             lst = ', '.join(item(0, []) for _ in range(rnd.randint(0, 4)))
             k2 = rnd.random()
             lab_ = rnd.choice(labels)
-            head = 'PRINT %d' % lab_ if k2 < 0.3 else 'READ %d' % lab_ if k2 < 0.4 else \
-                '%s (%s, %d)' % (rnd.choice(['READ', 'WRITE']),
-                                  rnd.choice(['5', '6', 'K', 'N' if sub else 'M']), lab_) \
-                if k2 < 0.8 else '%s (%s)' % (rnd.choice(['READ', 'WRITE']),
-                                               rnd.choice(['5', 'L']))
+            if k2 < 0.25:
+                head = '%s %d' % (rnd.choice(['PRINT', 'PRINT', 'PUNCH']), lab_)
+            elif k2 < 0.35:
+                head = 'READ %d' % lab_
+            elif k2 < 0.65:
+                head = '%s (%s, %d)' % (rnd.choice(['READ', 'WRITE']),
+                                        rnd.choice(['5', '6', 'K', 'N' if sub else 'M']), lab_)
+            elif k2 < 0.85:
+                buf = rnd.choice(list(dims) + [element()])
+                head = '%s (%s, %d, %s)' % (rnd.choice(['ENCODE', 'DECODE']),
+                                            rnd.choice(['20', '10', 'K']), lab_, buf)
+            else:
+                head = '%s (%s)' % (rnd.choice(['READ', 'WRITE']), rnd.choice(['5', 'L']))
             st = head + (', ' + lst if lst and '(' not in head else
                          ' ' + lst if lst else '')
         elif k < 0.8:
