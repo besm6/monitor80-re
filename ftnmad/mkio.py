@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""mkio.py seed [n] [sub] - a random Fortran program (stdout) with PRINT and
+"""mkio.py seed [n] [sub] - a random Fortran program (stdout) with PRINT,
+READ, WRITE (formatted and not, units constant and in variables) and
 FORMAT: lists of scalars (integer, real, double precision, in COMMON),
 array elements with constant and variable subscripts, whole arrays of 1-3
 dimensions, nested implied DO loops (constant and variable bounds, steps);
@@ -106,7 +107,15 @@ def program(seed, n=12, sub=False):
         k = rnd.random()
         if k < 0.6:
             lst = ', '.join(item(0, []) for _ in range(rnd.randint(0, 4)))
-            st = 'PRINT %d%s' % (rnd.choice(labels), ', ' + lst if lst else '')
+            k2 = rnd.random()
+            lab_ = rnd.choice(labels)
+            head = 'PRINT %d' % lab_ if k2 < 0.3 else 'READ %d' % lab_ if k2 < 0.4 else \
+                '%s (%s, %d)' % (rnd.choice(['READ', 'WRITE']),
+                                  rnd.choice(['5', '6', 'K', 'N' if sub else 'M']), lab_) \
+                if k2 < 0.8 else '%s (%s)' % (rnd.choice(['READ', 'WRITE']),
+                                               rnd.choice(['5', 'L']))
+            st = head + (', ' + lst if lst and '(' not in head else
+                         ' ' + lst if lst else '')
         elif k < 0.8:
             st = '%s = %s' % (element(), rnd.choice(['X', 'Y + 1.0', '2.5']))
         else:

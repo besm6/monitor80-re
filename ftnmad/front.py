@@ -696,7 +696,11 @@ class Front:
                 parts = split_top(part[1:-1])
                 k = next((i for i, x in enumerate(parts)
                           if re.fullmatch(r'[A-Z][A-Z0-9]*=[A-Z0-9]+', x)), None)
-                if k is None or not 2 <= len(parts) - k <= 3:
+                if k is None:
+                    # parentheses without a loop: just the items
+                    out += self.io_tree(part[1:-1])
+                    continue
+                if not 2 <= len(parts) - k <= 3:
                     raise Error('bad implied DO: ' + part)
                 items = self.io_tree(','.join(parts[:k]))
                 var, first = parts[k].split('=')
@@ -710,6 +714,12 @@ class Front:
                 out.append((items, v, params, step, self.ndo))
             elif part in self.arrays:
                 out.append(part)
+            elif re.fullmatch(r'[A-Z][A-Z0-9]*\(.*\)', part) and \
+                    part[:part.index('(')] not in self.arrays:
+                # a function and its arguments: the original takes them for
+                # items (the function as an external one)
+                out.append(self.function(part[:part.index('(')]))
+                out += self.io_tree(part[part.index('(') + 1:-1])
             else:
                 toks = self.tokens(part)
                 if len(toks) != 1 or toks[0] & 0o37 not in (0o10, 0o30) and \
@@ -755,22 +765,53 @@ class Front:
         """one item: ARG, CALL f (its SUBP before the first call), and 073
         for an integer variable (even a parameter)"""
         self.put(t, 0o11)
-        if f == 'FT*002':           # two-word values: their own routines
-            f = {D: 'FD*002', C: 'FC*002'}.get(t >> 15 & 7, f)
+        if var:                     # two-word values: their own routines
+            f = {D: 'FD', C: 'FC'}.get(t >> 15 & 7, 'FT') + f[2:]
         self.put(self.library(f), 0o10)
         if var and t & 0o37 == 0o10 and not t & 0o777427:
             self.put(t, 0o73)       # (an element with constant subscripts too)
 
-    def print_(self, label, text):
-        """PRINT n [, list]: FT*571 (/n), FT*002 for every item, FT*003"""
-        mt = re.match(r'PRINT(\d+)(?:,(.*))?$', text)
-        tree = self.io_tree(mt.group(2)) if mt.group(2) else []
+    def io_statement(self, label, text):
+        """PRINT n, READ n, READ (u, n), WRITE (u, n), READ (u), WRITE (u)
+        [list]: the routine of the start (the unit and the format before
+        it; 073 for a unit in a variable), one for every item, the end:
+                    start   item    end
+        PRINT n     FT*571  FT*002  FT*003
+        READ n      FT*541  FT*002  FT*003
+        READ (u,n)  FT*521  FT*002  FT*003
+        WRITE (u,n) FT*621  FT*002  FT*003
+        READ (u)    FT*641  FT*642  FT*643
+        WRITE (u)   FT*721  FT*722  FT*723
+        (FD*nnn, FC*nnn for double precision and complex items)"""
+        mt = re.match(r'(PRINT|READ)(\d+)(?:,(.*))?$', text)
+        if mt:
+            unit, fmt, lst = None, mt.group(2), mt.group(3)
+            start = 'FT*571' if mt.group(1) == 'PRINT' else 'FT*541'
+            item, end = 'FT*002', 'FT*003'
+        else:
+            mt = re.match(r'(READ|WRITE)\(([A-Z0-9]+)(?:,(\d+))?\)(.*)$', text)
+            unit, fmt, lst = mt.group(2), mt.group(3), mt.group(4)
+            write = mt.group(1) == 'WRITE'
+            if fmt:
+                start = 'FT*621' if write else 'FT*521'
+                item, end = 'FT*002', 'FT*003'
+            else:
+                start, item, end = ('FT*721', 'FT*722', 'FT*723') if write else \
+                    ('FT*641', 'FT*642', 'FT*643')
+        args = [self.tokens(unit)[0]] if unit else []
+        tree = self.io_tree(lst) if lst else []
         self.begin(label)
         self.m[gen.D33143 + 222] = 0    # CONTROL: the calls are of type I
-        self.io_item(self.format_label(mt.group(1)), 'FT*571', False)
+        if fmt:
+            args.append(self.format_label(fmt))
+        for t in args:
+            self.put(t, 0o11)
+        self.put(self.library(start), 0o10)
+        if unit and args[0] & 0o37 == 0o10 and not args[0] & 0o777427:
+            self.put(args[0], 0o73)
         if tree:
-            self.io_items(tree, 'FT*002')
-        self.put(self.library('FT*003'), 0o10)
+            self.io_items(tree, item)
+        self.put(self.library(end), 0o10)
 
     def do(self, label, text):
         mt = re.match(r'DO(\d+)([A-Z][A-Z0-9]*)=([A-Z0-9]+),([A-Z0-9]+)(?:,([A-Z0-9]+))?$',
@@ -878,8 +919,8 @@ class Front:
                 self.leave()
             return True
         self.jumped = False
-        if re.match(r'PRINT\d+(,|$)', text):
-            self.print_(label, text)
+        if re.match(r'(PRINT|READ)\d+(,|$)|(READ|WRITE)\([A-Z0-9]+(,\d+)?\)', text):
+            self.io_statement(label, text)
             return
         mt = re.match(r'([A-Z][A-Z0-9]*)\(([A-Z][A-Z0-9]*(?:,[A-Z][A-Z0-9]*)*)\)=(.*)$', text)
         if mt and not self.entered and mt.group(1) not in self.arrays:
@@ -956,9 +997,21 @@ class Front:
             self.jumped = True
         elif text == 'CONTINUE':
             pass
-        elif text in ('STOP', 'RETURN'):
-            self.leave(text == 'STOP')
+        elif text == 'RETURN' or re.match(r'STOP[A-Z0-9]*$', text):
+            self.leave(text != 'RETURN')      # (the number of STOP is not used)
             self.jumped = True
+        elif text.startswith('PAUSE'):
+            # PAUSE [n], n a constant 1..32767: VJM PAUSE* with the number
+            # as the argument (without it: item 103)
+            f = self.library('PAUSE*')
+            n = text[5:]
+            if not n:
+                self.put(0, 0o103)
+            elif n.isdigit() and 0 < int(n) < 32768:
+                self.put(self.constant(n), 0o11)
+            else:
+                raise Error('PAUSE needs a constant 1..32767')     # 21035
+            self.put(f, 0o1500000000000031)
         else:
             raise Error('unknown statement: ' + text)
 
@@ -1341,9 +1394,7 @@ class Front:
     def leave(self, stop=False):
         """STOP in a main program, RETURN in a subprogram"""
         if stop or self.kind == 'PROGRAM':
-            p = self.name_cell('STOP*')
-            self.put(p << 33 | 0o10, 0o45)
-            self.put(p << 33 | 0o13, 0o1500000000000031)
+            self.put(self.library('STOP*'), 0o1500000000000031)
         else:
             self.put(self.special('*END'), 0o30)
 
