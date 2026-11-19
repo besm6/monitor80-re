@@ -182,6 +182,7 @@ class Sym:
 
 
 LOGOP = r'(?:EQ|NE|GT|LT|GE|LE|AND|OR|NOT)'
+HOLLERITH = re.compile(r"(\d+)H|'([^']+)'")    # nH... or '...'
 OCTAL = re.compile(r'([0-7]+)B(?![A-Z0-9])')    # an octal constant: a bare word
 TOKEN = re.compile(r'(\d+(?:\.(?!(?:' + LOGOP + r'|TRUE|FALSE)\.)\d*)?(?:[ED][+-]?\d+)?'
                    r'|\.\d+(?:[ED][+-]?\d+)?)'
@@ -218,6 +219,8 @@ class Front:
         self.entered = False
         self.functions = {}     # external functions: name -> token
         self.io_funcs = {}      # FT*... routines used: name -> token
+        self.nholl = 0          # long Hollerith constants *Hn ...
+        self.pending_holl = []  # ... whose data is still to come
         self.formats = {}       # FORMAT labels: n -> cell of /n
         self.pending_formats = []   # FORMATs before the first statement
         self.after_do = False   # the next statement ends a group of CONTROL
@@ -321,6 +324,19 @@ class Front:
             self.functions[name] = t
         return t
 
+    def hollerith(self, body):
+        """a Hollerith or quoted constant: up to 6 characters a constant
+        word (ISO, blanks after); a longer one is data *Hn (its words come
+        before the statement) used as an integer variable"""
+        if len(body) <= 6:
+            return self.const_word(int.from_bytes(body.ljust(6).encode('latin-1'), 'big'), I)
+        body += ' ' * (-len(body) % 6)
+        self.nholl += 1
+        cell = self.name_cell('*H%d' % self.nholl) << 33 | 0o10
+        self.pending_holl.append((cell, [int.from_bytes(body[i:i + 6].encode('latin-1'), 'big')
+                                         for i in range(0, len(body), 6)]))
+        return cell
+
     def constant(self, text):
         """a constant: one entry of the table for every value"""
         if re.fullmatch(r'\d+', text):
@@ -383,6 +399,17 @@ class Front:
         out = []
         pos = 0
         while pos < len(text):
+            mh = HOLLERITH.match(text, pos)
+            if mh:
+                if mh.group(1):
+                    n = int(mh.group(1))
+                    body = text[mh.end():mh.end() + n]
+                    pos = mh.end() + n
+                else:
+                    body = mh.group(2)
+                    pos = mh.end()
+                out.append(self.hollerith(body))
+                continue
             mo = OCTAL.match(text, pos)
             if mo:
                 # nB: the word itself, of type I (no integer format: it is
@@ -619,6 +646,9 @@ class Front:
         for s in self.pending:
             self.put(s.ptr << 33 | self.size(s) << 18 | s.type << 15 | 0o10, 0o57)
         self.pending = []
+        for item in self.pending_holl:
+            self.format_out(*item)
+        self.pending_holl = []
         self.put(0, 0o72)
         if label:
             self.put(self.label(label), 0o54)
@@ -761,8 +791,11 @@ class Front:
                 out += self.io_tree(part[part.index('(') + 1:-1])
             else:
                 toks = self.tokens(part)
-                if len(toks) != 1 or toks[0] & 0o37 not in (0o10, 0o30) and \
-                        toks[0] & 0o37 < 0o10:
+                mh = HOLLERITH.match(part)
+                holl = mh and (mh.end() == len(part) if mh.group(2) else
+                               mh.end() + int(mh.group(1)) == len(part))
+                if not holl and (len(toks) != 1 or toks[0] & 0o37 not in (0o10, 0o30) and
+                                 toks[0] & 0o37 < 0o10):
                     raise Error('an expression in an input/output list')    # 21010
                 t = toks[0]
                 if t & 0o77437 == 0o30:
@@ -2139,7 +2172,7 @@ def split_dollar(label, raw):
     first = True
     for piece in pieces:
         if piece.strip():
-            yield (label if first else '', piece.replace(' ', ''), piece)
+            yield (label if first else '', unblank(piece), piece)
         first = False
 
 
