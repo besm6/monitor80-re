@@ -992,9 +992,30 @@ class Front:
             return
         self.begin(label)
         mt = re.match(r'GOTO(\d+)$', text)
+        mc = re.match(r'GOTO\((\d+(?:,\d+)*)\),?([A-Z][A-Z0-9]*)$', text)
+        ma = re.match(r'GOTO([A-Z][A-Z0-9]*)(?:,\(\d+(?:,\d+)*\))?$', text)
+        mi = re.match(r'ASSIGN(\d+)TO([A-Z][A-Z0-9]*)$', text)
         if mt:
             self.put(self.label(mt.group(1)), 0o30)
             self.jumped = True
+        elif mc:
+            # GO TO (n1, n2, ...), k: WTC k; UJ *; a table UJ n1, UJ n2 ...
+            # (each on a word of its own)
+            self.put(self.variable(mc.group(2)), 0o23)
+            self.put(self.cell('*', 0o10), 0o30)
+            for n in mc.group(1).split(','):
+                self.put(self.label(n), 0o2000000000000030)
+            self.jumped = True
+        elif ma:
+            # GO TO l [, (n1, ...)]: WTC l; UJ (the list is not used)
+            self.put(self.variable(ma.group(1)), 0o23)
+            self.put(0, 0o30)
+            self.jumped = True
+        elif mi:
+            # ASSIGN n TO l: the address of the label into l
+            self.put(self.label(mi.group(1)), 0o1600000000000024)
+            self.put(0, 0o1600000143)
+            self.put(self.variable(mi.group(2)), 0o101)
         elif text == 'CONTINUE':
             pass
         elif text == 'RETURN' or re.match(r'STOP[A-Z0-9]*$', text):
